@@ -1,0 +1,9 @@
+node_modules/
+parser.js
+output.a
+out/
+tests/
+gmon.out
+analysis.txt
+output.c
+old_git/

@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@types/node": "^22.10.1",
+    "peggy": "^4.2.0"
+  },
+  "scripts": {
+    "build_parser": "peggy parser.pegjs --format es",
+    "build_main": "mkdir out; bun build main.ts --outfile out/alc --compile"
+  }
+}
