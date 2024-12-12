@@ -3,7 +3,8 @@ This is a simple compiler for a [memory-safe] programming language where everyth
 
 It *may* be turing-complete (I haven't checked, but it probably is), but it requires most commonly used utilities to be written using C interfacing, or written directly into the C templating. An updating including a proper guide and an stdlib alongside troubleshooting coming soon.
 
-# Build:
+## Build:
+>Currently only the typescript version that emits C code and compiles it using `clang` is available. The C version will emit machine code directly with no dependency requirements and it is a work in progress.
 1. Install bun
 2. Clone the repo and cd into the repo and then to the `ts_version/` folder
 3. Run `make build`
@@ -100,7 +101,12 @@ Coming soon in future updates!
 - [x] Rewrite parser in C
 - [x] Rewrite codegen in C
 - [x] Optimize performance
-- [x] Eliminate / shorten code
+- [ ] Eliminate / shorten code
+- [ ] Implement carrying for arithmetic functions (eg. addc)
 - [ ] Implement direct linux x86 output (maybe?)
 - [ ] Bundle code + x86 together to allow runtime code inspection and modification (maybe?)
 - [ ] Better error checking (soon)
+
+# Fun facts
+- The name wasn't originally supposed to be a reference to Alan Turing, but later on I realized the correlation.
+- The static analyzer is called the Overlord. Why? I don't know, I didn't want to just call it "Static Analyzer". That would be boring.
