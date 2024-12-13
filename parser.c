@@ -227,6 +227,8 @@ struct Entry {
             i32   name;
             short arg_count;
             byte  implemented;
+            char *types;
+            char  ret;
         } fn;
     } value;
     i32 references;
@@ -316,6 +318,91 @@ string *read_file(char *name, Arena *mem) {
 #else
     #define debug(name)
 #endif
+
+// ------------------------
+// ------- PRINTER --------
+// ------------------------
+
+void print_i(i val, i32 indent, ctx con, byte print_sym) {
+    if (val == null) printf("\r");
+
+    else if (val->type == tref) {
+        if (print_sym) printf("<$%li>", val->value.ref);
+        else { printf("%s", con->symbols->array[ labs(val->value.ref) ]); }
+    }
+
+    else if (val->type == tchr) {
+        printf("'%c'", val->value.chr);
+    }
+
+    else if (val->type == tstr) {
+        if (print_sym) printf("<\"%li>", val->value.str_id);
+        else { printf("\"%s\"", con->literals->array[ val->value.str_id ].value.str.array); }
+    }
+
+    else if (val->type == tnum) {
+        if (print_sym) printf("<#%li>", val->value.str_id);
+        else { printf("%li", con->literals->array[ val->value.str_id ].value.num); }
+    }
+
+    else if (val->type == tfn) {
+        if (print_sym) printf("fn <$%li> (", val->value.fn.name);
+        else
+            printf("fn %s (", con->symbols->array[ val->value.fn.name ]);
+        for (i32 i = 0; i < val->value.fn.args->size; i++) {
+            if (print_sym) printf("<$%li>", val->value.fn.args->array[ i ]);
+            else { printf("%s", con->symbols->array[ labs(val->value.fn.args->array[ i ]) ]); }
+            if (i + 1 < val->value.fn.args->size) printf(", ");
+        }
+        printf(") ");
+
+        print_i(val->value.fn.block, indent, con, print_sym);
+        printf(";\n");
+    }
+
+    else if (val->type == tcall) {
+        if (print_sym) printf("<$%li> ", val->value.call.name);
+        else
+            printf("%s ", con->symbols->array[ val->value.call.name ]);
+        for (i32 i = 0; i < val->value.call.args->size; i++) {
+            print_i(val->value.call.args->array[ i ], indent, con, print_sym);
+            if (i + 1 < val->value.call.args->size) printf(" ");
+        }
+        printf(";");
+    }
+
+    else if (val->type == tcode) {
+        printf("[ ");
+        if (val->value.block->size > 1) printf("\n");
+        for (i32 i = 0; i < val->value.block->size; i++) {
+            if (val->value.block->array[ i ] == null) continue;
+
+            if (val->value.block->size > 1) {
+                for (i32 sp = 0; sp <= indent; sp++) printf("    ");
+            }
+
+            print_i(val->value.block->array[ i ], indent + 1, con, print_sym);
+            if (i + 1 < val->value.block->size && val->value.block->size > 1) printf("\n");
+        }
+
+        if (val->value.block->size > 1) {
+            printf("\n");
+            for (i32 sp = 0; sp < indent; sp++) printf("    ");
+        } else {
+            printf(" ");
+        }
+
+        printf("]");
+    }
+
+    else if (val->type == tembd) {
+        printf("{{ %s }}", val->value.direct->array);
+    }
+
+    else {
+        printf("{unknown - %i}", val->type);
+    }
+}
 
 // ------------------------
 // -------- PARSER --------
@@ -529,7 +616,6 @@ fn(i, parse_embd, ctx con) {
 }
 
 i parse_block(ctx con, Arena *mem);
-i parse_fn(ctx con, Arena *mem);
 
 fn(i, parse_expr, ctx con) {
     // debug(expr);
@@ -542,6 +628,10 @@ fn(i, parse_expr, ctx con) {
 
     return value;
 }
+
+byte NUM_TYPE;
+byte LIST_TYPE;
+byte ARG_TYPE;
 
 fn(i, parse_call, ctx con) {
     var call_name = parse_ref_str(con, mem);
@@ -572,27 +662,19 @@ fn(i, parse_call, ctx con) {
         parse_null(con);
     }
 
-    if (val->value.call.name == 20 || val->value.call.name == 21) {
-        if (val->value.call.args->size <= 0) {
-            error(con, "Cannot call num or list with no arguments!");
+    if (val->value.call.name == NUM_TYPE || val->value.call.name == LIST_TYPE) {
+        if (val->value.call.args->size != 2 && val->value.call.args->size != 1) {
+            error(con, "The functions num and list require one or two arguments!");
         }
 
         var first = val->value.call.args->array[ 0 ];
 
         if (first->type != tref) {
-            error(con, "First argument of num or list should always be a keyword!");
+            error(con, "First argument (type) of num or list should always be a keyword!");
         }
     }
 
     return val;
-}
-
-fn(i, parse_action, ctx con) {
-    // debug(action);
-    var value = parse_fn(con, mem);
-    if (value == null) value = parse_call(con, mem);
-
-    return value;
 }
 
 fn(i, parse_block, ctx con) {
@@ -639,7 +721,7 @@ fn(i, parse_block, ctx con) {
 
     skip();
 
-    // if (val->value.block->size == 0) error(con, "Empty blocks are not supported!");
+    if (val->value.block->size == 0) error(con, "Empty blocks are not supported!");
 
     return val;
 }
@@ -676,6 +758,7 @@ fn(i, parse_fn, ctx con) {
     val->value.fn.block = (void *) code;
 
     val->value.fn.args = (void *) ret(symbol, 0);
+    var my_types       = ret(char, 0);
 
     for (i32 i = 0; i < code->value.block->size; i++) {
         var current = code->value.block->array[ i ];
@@ -684,16 +767,23 @@ fn(i, parse_fn, ctx con) {
             if (name == 1) { // index 1 is arg
                 var args = current->value.call.args;
 
-                if (args->size != 1) {
+                if (args->size != 2) {
                     error(
-                        con, "A function argument call must have exactly one argument (its name)!");
+                        con,
+                        "A function argument call must have exactly two arguments (its type and "
+                        "name)!");
                 }
 
-                var name = args->array[ 0 ];
+                var name = args->array[ 1 ];
                 if (name->type != tref)
-                    error(con, "A function argument must be a reference (keyword)!");
+                    error(con, "A function argument's name must be a reference (keyword)!");
+
+                var type = args->array[ 0 ];
+                if (type->type != tref)
+                    error(con, "A function argument's type must be a reference (type)!");
 
                 push(val->value.fn.args, name->value.ref, mem);
+                push(my_types, (type->value.ref == NUM_TYPE ? -1 : 1), mem);
 
                 if (val->value.fn.args->size > 256) {
                     error(
@@ -703,101 +793,40 @@ fn(i, parse_fn, ctx con) {
                 }
 
                 // WARN: Block values may be null!
-                code->value.block->array[ i ] = null;
+                // code->value.block->array[ i ] = null;
             }
         }
     }
 
-    var entry = (struct Entry) {
-        .type     = etfn,
-        .value.fn = { .arg_count = val->value.fn.args->size, .name = fn_name, .implemented = 0 }
-    };
+    var entry = (struct Entry) { .type     = etfn,
+                                 .value.fn = { .arg_count   = val->value.fn.args->size,
+                                               .name        = fn_name,
+                                               .implemented = 0,
+                                               .types       = my_types->array } };
     push(con->literals, entry, mem);
 
-    // val->value.fn.entry = con->literals->size - 1;
+    val->value.fn.entry = con->literals->size - 1;
 
     release();
     return val;
 }
 
-// ------------------------
-// ------- PRINTER --------
-// ------------------------
+fn(i, parse_action, ctx con) {
+    // debug(action);
+    var value = parse_fn(con, mem);
+    if (value == null) value = parse_call(con, mem);
 
-void print_i(i val, i32 indent, ctx con, byte print_sym) {
-    if (val == null) printf("\r");
-    else if (val->type == tref) {
-        if (print_sym) printf("<$%li>", val->value.ref);
-        else
-            printf("%s", con->symbols->array[ val->value.ref ]);
-    } else if (val->type == tchr)
-        printf("'%c'", val->value.chr);
-    else if (val->type == tstr) {
-        if (print_sym) printf("<\"%li>", val->value.str_id);
-        else
-            printf("\"%s\"", con->literals->array[ val->value.str_id ].value.str.array);
-    } else if (val->type == tnum) {
-        if (print_sym) printf("<#%li>", val->value.str_id);
-        else
-            printf("%li", con->literals->array[ val->value.str_id ].value.num);
-    } else if (val->type == tfn) {
-        if (print_sym) printf("fn <$%li> (", val->value.fn.name);
-        else
-            printf("fn %s (", con->symbols->array[ val->value.fn.name ]);
-        for (i32 i = 0; i < val->value.fn.args->size; i++) {
-            if (print_sym) printf("<$%li>", val->value.fn.args->array[ i ]);
-            else
-                printf("%s", con->symbols->array[ val->value.fn.args->array[ i ] ]);
-            if (i + 1 < val->value.fn.args->size) printf(", ");
-        }
-        printf(") ");
-
-        print_i(val->value.fn.block, indent, con, print_sym);
-        printf(";\n");
-    } else if (val->type == tcall) {
-        if (print_sym) printf("<$%li> ", val->value.call.name);
-        else
-            printf("%s ", con->symbols->array[ val->value.call.name ]);
-        for (i32 i = 0; i < val->value.call.args->size; i++) {
-            print_i(val->value.call.args->array[ i ], indent, con, print_sym);
-            if (i + 1 < val->value.call.args->size) printf(" ");
-        }
-        printf(";");
-    } else if (val->type == tcode) {
-        printf("[ ");
-        if (val->value.block->size > 1) printf("\n");
-        for (i32 i = 0; i < val->value.block->size; i++) {
-            if (val->value.block->array[ i ] == null) continue;
-
-            if (val->value.block->size > 1) {
-                for (i32 sp = 0; sp <= indent; sp++) printf("    ");
-            }
-
-            print_i(val->value.block->array[ i ], indent + 1, con, print_sym);
-            if (i + 1 < val->value.block->size && val->value.block->size > 1) printf("\n");
-        }
-
-        if (val->value.block->size > 1) {
-            printf("\n");
-            for (i32 sp = 0; sp < indent; sp++) printf("    ");
-        } else {
-            printf(" ");
-        }
-
-        printf("]");
-    } else if (val->type == tembd) {
-        printf("{{ %s }}", val->value.direct->array);
-    } else {
-        printf("{unknown - %i}", val->type);
-    }
+    return value;
 }
 
 typedef A(symbol) * symbolic;
 
 byte suggestions = 1;
 
-fn(void, __validate, i val, symbolic symbols, ctx context) {
-    if (val == null) return;
+fn(char, __validate, i val, symbolic symbols, ctx context) {
+    if (val == null) return 0;
+    // print_i(val, 0, context, 0);
+    // printf("\n\n");
 
     // printf("%i\n", val->type);
 
@@ -805,14 +834,20 @@ fn(void, __validate, i val, symbolic symbols, ctx context) {
         // Search for symbol in symbolic tree
 
         for (i32 i = 0; i < symbols->size; i++) {
-            if (symbols->array[ i ] == val->value.ref) return;
+            if (labs(symbols->array[ i ]) == labs(val->value.ref)) {
+                var magic      = symbols->array[ i ] < 0 ? -1 : 1;
+                val->value.ref = magic * labs(val->value.ref);
+                return magic;
+            }
         }
 
         print_i(val, 0, context, 0);
         printf("\n\nReference index: %li\n", val->value.ref);
         error(null, "Reference keyword not found!");
+        return 0;
     } else if (val->type == tchr) {
         // Pass. No checks here.
+        return -1;
     } else if (val->type == tstr) {
         if (suggestions) {
             var index = context->literals->array[ val->value.str_id ];
@@ -823,6 +858,8 @@ fn(void, __validate, i val, symbolic symbols, ctx context) {
                     index.value.str.array);
             }
         }
+
+        return 1;
     } else if (val->type == tnum) {
         if (suggestions) {
             var index = context->literals->array[ val->value.str_id ];
@@ -834,23 +871,26 @@ fn(void, __validate, i val, symbolic symbols, ctx context) {
                 context->literals->array[ val->value.str_id ].references = 0;
             }
         }
+
+        return -1;
     } else if (val->type == tfn) {
-        if (context->literals->array[ val->value.fn.name ].value.fn.implemented) {
+        if (context->literals->array[ val->value.fn.entry ].value.fn.implemented) {
             print_i(val, 0, context, 0);
             printf(
-                "\n\nReferenced function: '%s'\n", context->symbols->array[ val->value.fn.name ]);
+                "\n\nReferenced function: '%s'\n", context->symbols->array[ val->value.fn.entry ]);
             error(null, "Duplicate function definition!");
         }
 
-        context->literals->array[ val->value.fn.name ].value.fn.implemented = 1;
+        context->literals->array[ val->value.fn.entry ].value.fn.implemented = 1;
 
         var clone = (symbolic) copy(symbols, mem);
 
-        for (i32 i = 0; i < val->value.fn.args->size; i++) {
-            push(clone, val->value.fn.args->array[ i ], mem);
-        }
+        // for (i32 i = 0; i < val->value.fn.args->size; i++) {
+        //     push(clone, val->value.fn.args->array[ i ], mem);
+        // }
 
         __validate(val->value.fn.block, clone, context, mem);
+        return 0;
     } else if (val->type == tcall) {
         struct Entry target = { 0 };
         byte         found  = 0;
@@ -879,23 +919,60 @@ fn(void, __validate, i val, symbolic symbols, ctx context) {
             error(null, "Mismatched argument count!");
         }
 
-        if (val->value.call.name == 20 || val->value.call.name == 21) {
+        if (val->value.call.name == NUM_TYPE) {
+            push(symbols, labs(val->value.call.args->array[ 0 ]->value.ref) * -1, mem);
+            var clone = copy(symbols, mem);
+            __validate(val->value.call.args->array[ 1 ], symbols, context, mem);
+            return -1;
+        } else if (val->value.call.name == LIST_TYPE) {
             push(symbols, val->value.call.args->array[ 0 ]->value.ref, mem);
+            return 1;
+        } else if (val->value.call.name == ARG_TYPE) {
+            var type  = val->value.call.args->array[ 0 ]->value.ref;
+            var magic = (type == NUM_TYPE ? -1 : 1);
+            push(symbols, labs(val->value.call.args->array[ 1 ]->value.ref) * magic, mem);
+            return magic;
         }
 
         for (i32 i = 0; i < val->value.call.args->size; i++) {
-            __validate(val->value.call.args->array[ i ], symbols, context, mem);
+            var expectation = target.value.fn.types[ i ];
+            var reality     = __validate(val->value.call.args->array[ i ], symbols, context, mem);
+
+            // printf("%s %li %i %i\n", context->symbols->array[val->value.call.name], i,
+            // expectation, reality);
+
+            if (expectation == 0) continue;
+            if (expectation != reality) {
+                print_i(val, 0, context, 0);
+                printf(
+                    "\n\nReferenced call: '%s' on argument %li:\n    ",
+                    context->symbols->array[ val->value.call.name ],
+                    i);
+                print_i(val->value.call.args->array[ i ], 0, context, 0);
+                printf("\n\n");
+                if (expectation == 1) error(null, "Expected list but got number!");
+                else
+                    error(null, "Expected number but got list!");
+            }
         }
+
+        return target.value.fn.ret;
     } else if (val->type == tcode) {
         var clone = copy(symbols, mem);
-        for (i32 i = 0; i < val->value.block->size; i++) {
+        for (i32 i = 0; i < val->value.block->size - 1; i++) {
             __validate(val->value.block->array[ i ], clone, context, mem);
         }
+
+        var output = __validate(
+            val->value.block->array[ val->value.block->size - 1 ], clone, context, mem);
+        return output;
     } else if (val->type == tembd) {
         // Pass. There's no checks to be done.
+        return 0;
     } else {
         printf("Type index: %i\n", val->type);
         error(null, "Unknown type in validation!");
+        return 0;
     }
 }
 
@@ -932,35 +1009,42 @@ unsigned char elf_header[ 52 ] = {
 struct standard_entry {
     char *name;
     i32   args;
+    char  types[ 256 ];
+    char  ret;
 };
+
+// 0 shows any type (list or int)
+// 1 shows list type
+// 2 shows int type
 
 const struct standard_entry stdlib[] = {
     // Internals
-    { .name = "arg", .args = 1 },    //
-    { .name = "if", .args = 2 },     //
-    { .name = "unless", .args = 2 }, //
-    { .name = "while", .args = 2 },  //
+    { .name = "arg", .args = 2, .types = { 0, 0 }, .ret = 0 },    //
+    { .name = "if", .args = 2, .types = { 0, 0 }, .ret = 0 },     //
+    { .name = "unless", .args = 2, .types = { 0, 0 }, .ret = 0 }, //
+    { .name = "while", .args = 2, .types = { 0, 0 }, .ret = 0 },  //
     // I/O functions
-    { .name = "dump", .args = 1 }, //
-    { .name = "puts", .args = 1 }, //
-    { .name = "putc", .args = 1 }, //
-    { .name = "log", .args = 1 },  //
+    { .name = "dump", .args = 1, .types = { 0 }, .ret = 0 },   //
+    { .name = "puts", .args = 1, .types = { 1 }, .ret = 1 },   //
+    { .name = "putc", .args = 1, .types = { -1 }, .ret = -1 }, //
+    { .name = "log", .args = 1, .types = { 0 }, .ret = 0 },    //
     // Arithmetic and logic
-    { .name = "add", .args = 2 }, //
-    { .name = "sub", .args = 2 }, //
-    { .name = "mul", .args = 2 }, //
-    { .name = "div", .args = 2 }, //
-    { .name = "mod", .args = 2 }, //
-    { .name = "and", .args = 2 }, //
-    { .name = "or", .args = 2 },  //
-    { .name = "not", .args = 1 }, //
+    // TODO: Add higher number arithmetics
+    { .name = "add", .args = 2, .types = { -1, -1 }, .ret = -1 },
+    { .name = "sub", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
+    { .name = "mul", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
+    { .name = "div", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
+    { .name = "mod", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
+    { .name = "and", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
+    { .name = "or", .args = 2, .types = { -1, -1 }, .ret = -1 },  //
+    { .name = "not", .args = 1, .types = { -1 }, .ret = -1 },     //
     // Array manipulation
-    { .name = "get", .args = 2 },  //
-    { .name = "push", .args = 2 }, //
-    { .name = "len", .args = 1 },  //
-    { .name = "num", .args = 2 },  //
-    { .name = "list", .args = 1 }, //
-    { .name = "set", .args = 2 },  //
+    { .name = "get", .args = 2, .types = { 1, -1 }, .ret = -1 }, // get(list, index): num
+    { .name = "push", .args = 2, .types = { 1, -1 }, .ret = 1 }, // push(list, value): list
+    { .name = "len", .args = 1, .types = { 1 }, .ret = -1 },     //
+    { .name = "num", .args = 2, .types = { 0 }, .ret = -1 },     //
+    { .name = "list", .args = 1, .types = { 0 }, .ret = 1 },     //
+    { .name = "set", .args = 2, .types = { 0, 0 }, .ret = 0 },   //
 };
 
 int main() {
@@ -982,8 +1066,15 @@ int main() {
         var entry = (struct Entry) { .type     = etfn,
                                      .value.fn = { .name        = con->symbols->size - 1,
                                                    .arg_count   = stdlib[ i ].args,
-                                                   .implemented = 1 } };
+                                                   .implemented = 1,
+                                                   .types       = (char *) stdlib[ i ].types,
+                                                   .ret         = stdlib[ i ].ret } };
         push(con->literals, entry, scratch);
+
+        if (!strcmp(stdlib[ i ].name, "list")) LIST_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "num")) NUM_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "arg")) ARG_TYPE = con->symbols->size - 1;
+
         // printf("wow %li %s\n", entry.value.fn.name, stdlib[ i ].name);
     }
 
@@ -1003,12 +1094,16 @@ int main() {
         parse_null(con);
     }
 
-    // for (i32 i = 0; i < terms->size; i++) {
-    //     print_i(terms->array[ i ], 0, con, 1);
-    //     printf("\n");
-    // }
-
+    // Perform static analysis
     for (i32 i = 0; i < terms->size; i++) { validate(terms->array[ i ], con, scratch); }
+
+    for (i32 i = 0; i < terms->size; i++) {
+        print_i(terms->array[ i ], 0, con, 1);
+        printf("\n");
+    }
+
+    // Generate code
+    var template = *read_file("template.c", scratch);
 
     release();
 }
