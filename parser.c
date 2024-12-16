@@ -195,29 +195,6 @@ void *copy(void *_array, Arena *mem) {
 
 typedef i32 symbol;
 
-typedef struct i *i;
-struct i {
-    enum { tstr, tnum, tcode, tcall, tref, tfn, tchr, tembd } type;
-    union {
-        i32 str_id;
-        i32 num_id;
-        A(i) * block;
-        struct {
-            symbol name;
-            A(i) * args;
-        } call;
-        symbol ref;
-        struct {
-            symbol name;
-            symbol entry;
-            i      block;
-            A(symbol) * args;
-        } fn;
-        char    chr;
-        string *direct;
-    } value;
-};
-
 struct Entry {
     enum { etnum, etstr, etfn } type;
     union {
@@ -242,6 +219,29 @@ struct _ctx {
 };
 
 typedef struct _ctx *ctx;
+
+typedef struct i *i;
+struct i {
+    enum { tstr, tnum, tcode, tcall, tref, tfn, tchr, tembd } type;
+    union {
+        i32 str_id;
+        i32 num_id;
+        A(i) *block;
+        struct {
+            symbol name;
+            A(i) * args;
+        } call;
+        symbol ref;
+        struct {
+            symbol name;
+            symbol entry;
+            i      block;
+            A(symbol) * args;
+        } fn;
+        char    chr;
+        string *direct;
+    } value;
+};
 
 byte starts_with(ctx con, char *predicate) {
     return strcmp(&con->str.array[ con->current ], predicate) == 0;
@@ -277,9 +277,14 @@ void parse_null(ctx con) {
 #define is_ref_firstchar(a) ((a >= 'a' && a <= 'z') || (a >= 'A' && a <= 'Z') || (a == '_'))
 #define is_refchar(a)       (is_ref_firstchar(a) || is_num(a))
 
+const var ir_error       = (void *) -2;
+const var analyzer_error = (void *) -1;
+
 void error(ctx con, char *text) {
     // TODO: Improve error reporting, maybe add stack trace?
-    if (con == null) printf("Overlord Error: %s\n", text);
+    if (con == analyzer_error) printf("Overlord Error: %s\n", text);
+    else if (con == ir_error)
+        printf("Tourist Error: %s\n", text);
     else { printf("Parser Error: %s\nIndex: %li\n\n", text, con->current); }
     exit(1);
 }
@@ -346,7 +351,7 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
     }
 
     else if (val->type == tfn) {
-        if (print_sym) printf("fn <$%li> (", val->value.fn.name);
+        if (print_sym) printf("\nfn <$%li>(", val->value.fn.name);
         else
             printf("fn %s (", con->symbols->array[ val->value.fn.name ]);
         for (i32 i = 0; i < val->value.fn.args->size; i++) {
@@ -361,12 +366,12 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
     }
 
     else if (val->type == tcall) {
-        if (print_sym) printf("<$%li> ", val->value.call.name);
+        if (print_sym) printf("<$%li>", val->value.call.name);
         else
-            printf("%s ", con->symbols->array[ val->value.call.name ]);
+            printf("%s", con->symbols->array[ val->value.call.name ]);
         for (i32 i = 0; i < val->value.call.args->size; i++) {
+            printf(" ");
             print_i(val->value.call.args->array[ i ], indent, con, print_sym);
-            if (i + 1 < val->value.call.args->size) printf(" ");
         }
         printf(";");
     }
@@ -632,6 +637,7 @@ fn(i, parse_expr, ctx con) {
 byte NUM_TYPE;
 byte LIST_TYPE;
 byte ARG_TYPE;
+byte SET_TYPE;
 
 fn(i, parse_call, ctx con) {
     var call_name = parse_ref_str(con, mem);
@@ -825,10 +831,13 @@ byte suggestions = 1;
 
 fn(char, __validate, i val, symbolic symbols, ctx context) {
     if (val == null) return 0;
-    // print_i(val, 0, context, 0);
-    // printf("\n\n");
 
-    // printf("%i\n", val->type);
+#ifdef enable_debug
+    print_i(val, 0, context, 0);
+
+    for (i32 i = 0; i < symbols->size; i++) printf("\nsym %li\n", symbols->array[ i ]);
+    printf("\n\n");
+#endif
 
     if (val->type == tref) {
         // Search for symbol in symbolic tree
@@ -843,7 +852,7 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
 
         print_i(val, 0, context, 0);
         printf("\n\nReference index: %li\n", val->value.ref);
-        error(null, "Reference keyword not found!");
+        error(analyzer_error, "Reference keyword not found!");
         return 0;
     } else if (val->type == tchr) {
         // Pass. No checks here.
@@ -878,7 +887,7 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
             print_i(val, 0, context, 0);
             printf(
                 "\n\nReferenced function: '%s'\n", context->symbols->array[ val->value.fn.entry ]);
-            error(null, "Duplicate function definition!");
+            error(analyzer_error, "Duplicate function definition!");
         }
 
         context->literals->array[ val->value.fn.entry ].value.fn.implemented = 1;
@@ -890,6 +899,7 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
         // }
 
         __validate(val->value.fn.block, clone, context, mem);
+
         return 0;
     } else if (val->type == tcall) {
         struct Entry target = { 0 };
@@ -906,7 +916,7 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
         if (!found) {
             print_i(val, 0, context, 0);
             printf("\n\nReferenced call: '%s'\n", context->symbols->array[ val->value.call.name ]);
-            error(null, "Function referenced in call was not found!");
+            error(analyzer_error, "Function referenced in call was not found!");
         }
 
         if (target.value.fn.arg_count != val->value.call.args->size) {
@@ -916,95 +926,148 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
                 context->symbols->array[ val->value.call.name ],
                 target.value.fn.arg_count,
                 val->value.call.args->size);
-            error(null, "Mismatched argument count!");
+            error(analyzer_error, "Mismatched argument count!");
         }
 
         if (val->value.call.name == NUM_TYPE) {
+            for (i32 i = 0; i < symbols->size; i++) {
+                if (labs(symbols->array[ i ]) != labs(val->value.call.args->array[ 0 ]->value.ref))
+                    continue;
+                print_i(val, 0, context, 0);
+                printf(
+                    "\n\nReferenced declaration: '%s'\n",
+                    context->symbols->array[ val->value.call.name ]);
+                error(analyzer_error, "Symbol already declared at this scope or higher!");
+            }
+
             push(symbols, labs(val->value.call.args->array[ 0 ]->value.ref) * -1, mem);
-            var clone = copy(symbols, mem);
             __validate(val->value.call.args->array[ 1 ], symbols, context, mem);
             return -1;
         } else if (val->value.call.name == LIST_TYPE) {
+            for (i32 i = 0; i < symbols->size; i++) {
+                if (labs(symbols->array[ i ]) != labs(val->value.call.args->array[ 0 ]->value.ref))
+                    continue;
+                print_i(val, 0, context, 0);
+                printf(
+                    "\n\nReferenced declaration: '%s'\n",
+                    context->symbols->array[ val->value.call.name ]);
+                error(analyzer_error, "Symbol already declared at this scope or higher!");
+            }
+
             push(symbols, val->value.call.args->array[ 0 ]->value.ref, mem);
             return 1;
         } else if (val->value.call.name == ARG_TYPE) {
+            for (i32 i = 0; i < symbols->size; i++) {
+                if (labs(symbols->array[ i ]) != labs(val->value.call.args->array[ 0 ]->value.ref))
+                    continue;
+                print_i(val, 0, context, 0);
+                printf(
+                    "\n\nReferenced declaration: '%s'\n",
+                    context->symbols->array[ val->value.call.name ]);
+                error(analyzer_error, "Symbol already declared at this scope or higher!");
+            }
+
             var type  = val->value.call.args->array[ 0 ]->value.ref;
             var magic = (type == NUM_TYPE ? -1 : 1);
             push(symbols, labs(val->value.call.args->array[ 1 ]->value.ref) * magic, mem);
             return magic;
+        } else if (val->value.call.name == SET_TYPE) {
+            var name = val->value.call.args->array[ 0 ]->value.ref;
+
+            // name type must be ref
+            if (val->value.call.args->array[ 0 ]->type != tref) {
+                print_i(val, 0, context, 0);
+                error(analyzer_error, "Set command requires reference as first argument!");
+            }
+
+            var exists = 0;
+            var type   = 0;
+            for (i32 i = 0; i < symbols->size; i++) {
+                if (labs(symbols->array[ i ]) == labs(name)) {
+                    exists = 1;
+                    type   = symbols->array[ i ] < 0 ? -1 : 1;
+                    break;
+                }
+            }
+
+            var inferred = val->value.call.args->array[ 1 ]->value.ref < 0 ? -1 : 1;
+            if (!exists) { // infer type from value
+                type = inferred;
+            }
+
+            if (inferred != val->value.call.args->array[ 0 ]->type) {
+                error(analyzer_error, "Set command's target type must match the variable type!");
+            }
+
+            push(symbols, labs(val->value.call.args->array[ 0 ]->value.ref) * type, mem);
+
+            return 0;
         }
 
         for (i32 i = 0; i < val->value.call.args->size; i++) {
             var expectation = target.value.fn.types[ i ];
-            var reality     = __validate(val->value.call.args->array[ i ], symbols, context, mem);
 
             // printf("%s %li %i %i\n", context->symbols->array[val->value.call.name], i,
             // expectation, reality);
 
+            var reality = __validate(val->value.call.args->array[ i ], symbols, context, mem);
             if (expectation == 0) continue;
-            if (expectation != reality) {
-                print_i(val, 0, context, 0);
-                printf(
-                    "\n\nReferenced call: '%s' on argument %li:\n    ",
-                    context->symbols->array[ val->value.call.name ],
-                    i);
-                print_i(val->value.call.args->array[ i ], 0, context, 0);
-                printf("\n\n");
-                if (expectation == 1) error(null, "Expected list but got number!");
-                else
-                    error(null, "Expected number but got list!");
+            if (expectation == 2) { // Code block
+                if (val->value.call.args->array[ i ]->type != tcode) {
+                    print_i(val, 0, context, 0);
+                    printf(
+                        "\n\nReferenced call: '%s' on argument %li:\n    ",
+                        context->symbols->array[ val->value.call.name ],
+                        i);
+                    print_i(val->value.call.args->array[ i ], 0, context, 0);
+                    printf("\n\n");
+                    error(analyzer_error, "Expected code block!");
+                }
+            } else {
+                if (expectation != reality) {
+                    print_i(val, 0, context, 0);
+                    printf(
+                        "\n\nReferenced call: '%s' on argument %li:\n    ",
+                        context->symbols->array[ val->value.call.name ],
+                        i);
+                    print_i(val->value.call.args->array[ i ], 0, context, 0);
+                    printf("\n\n");
+                    if (expectation == 1) error(analyzer_error, "Expected list but got number!");
+                    else
+                        error(analyzer_error, "Expected number but got list!");
+                }
             }
         }
 
         return target.value.fn.ret;
     } else if (val->type == tcode) {
-        var clone = copy(symbols, mem);
-        for (i32 i = 0; i < val->value.block->size - 1; i++) {
-            __validate(val->value.block->array[ i ], clone, context, mem);
+        var cloned_syms = copy(symbols, mem);
+
+        char output = 0;
+        for (i32 i = 0; i < val->value.block->size; i++) {
+            output = __validate(val->value.block->array[ i ], cloned_syms, context, mem);
         }
 
-        var output = __validate(
-            val->value.block->array[ val->value.block->size - 1 ], clone, context, mem);
         return output;
     } else if (val->type == tembd) {
         // Pass. There's no checks to be done.
         return 0;
     } else {
         printf("Type index: %i\n", val->type);
-        error(null, "Unknown type in validation!");
+        error(analyzer_error, "Unknown type in validation!");
         return 0;
     }
 }
 
-fn(void, validate, i term, ctx context) {
-    ground();
+fn(void, validate, A(i) * terms, ctx context) {
+    // ground();
 
-    __validate(term, (symbolic) new (symbol, 0), context, scratch);
+    var symbols = (symbolic) ret(symbol, 0);
 
-    release();
+    for (i32 i = 0; i < terms->size; i++) { __validate(terms->array[ i ], symbols, context, mem); }
+
+    // release();
 }
-
-unsigned char elf_header[ 52 ] = {
-    0x7F, 'E',  'L',  'F',  // Magic number
-    0x01,                   // Class: 32-bit
-    0x01,                   // Data: Little Endian
-    0x01,                   // Version: Current
-    0x00, 0x00, 0x00, 0x00, // Padding
-    0x00, 0x00, 0x00, 0x00, // Padding
-    0x02, 0x00,             // Type: Executable
-    0x03, 0x00,             // Machine: x86
-    0x01, 0x00, 0x00, 0x00, // Version
-    0x54, 0x80, 0x04, 0x08, // Entry Point (e.g., 0x08048054)
-    0x34, 0x00, 0x00, 0x00, // Program Header Offset (e.g., 0x34)
-    0x00, 0x00, 0x00, 0x00, // Section Header Offset (unused here)
-    0x00, 0x00, 0x00, 0x00, // Flags
-    0x34, 0x00,             // ELF Header Size (52 bytes)
-    0x20, 0x00,             // Program Header Entry Size (32 bytes)
-    0x01, 0x00,             // Number of Program Headers
-    0x00, 0x00,             // Section Header Entry Size (unused)
-    0x00, 0x00,             // Number of Section Headers
-    0x00, 0x00              // Section Header String Table Index
-};
 
 struct standard_entry {
     char *name;
@@ -1020,9 +1083,9 @@ struct standard_entry {
 const struct standard_entry stdlib[] = {
     // Internals
     { .name = "arg", .args = 2, .types = { 0, 0 }, .ret = 0 },    //
-    { .name = "if", .args = 2, .types = { 0, 0 }, .ret = 0 },     //
-    { .name = "unless", .args = 2, .types = { 0, 0 }, .ret = 0 }, //
-    { .name = "while", .args = 2, .types = { 0, 0 }, .ret = 0 },  //
+    { .name = "if", .args = 2, .types = { 0, 2 }, .ret = 0 },     //
+    { .name = "unless", .args = 2, .types = { 0, 2 }, .ret = 0 }, //
+    { .name = "while", .args = 2, .types = { 0, 2 }, .ret = 0 },  //
     // I/O functions
     { .name = "dump", .args = 1, .types = { 0 }, .ret = 0 },   //
     { .name = "puts", .args = 1, .types = { 1 }, .ret = 1 },   //
@@ -1045,14 +1108,168 @@ const struct standard_entry stdlib[] = {
     { .name = "num", .args = 2, .types = { 0 }, .ret = -1 },     //
     { .name = "list", .args = 1, .types = { 0 }, .ret = 1 },     //
     { .name = "set", .args = 2, .types = { 0, 0 }, .ret = 0 },   //
+    // Threading
+    { .name = "spawn", .args = 1, .types = { 2 }, .ret = -1 },   // fork(): id
+    { .name = "send", .args = 2, .types = { -1, 1 }, .ret = 0 }, // send(thread, value): value
+    { .name = "fetch", .args = 0, .types = {}, .ret = 1 }        //
 };
 
-int main() {
+fn(char *, ltoa, i32 value) {
     ground();
 
+    var output = new (char, 0);
+    while (value >= 10) {
+        push(output, (value % 10) + '0', scratch);
+        value /= 10;
+    }
+    push(output, value + '0', scratch);
+
+    var real_output = ret(char, 0);
+    for (i32 i = output->size - 1; i >= 0; i--) push(real_output, output->array[ i ], mem);
+
+    release();
+    return real_output->array;
+}
+
+typedef struct {
+    enum { nop, void_call } op;
+    union {
+        struct IR_INST_CALL {
+            // TODO
+        } call;
+    } data;
+} IR_INST;
+
+typedef struct {
+    enum { ir_lnum, ir_lstr } type;
+    union {
+        i32    number;
+        string string;
+    } value;
+} IR_LITERAL;
+
+typedef struct {
+    symbol name;
+    A(IR_INST) * body;
+} IR_FUNCTION;
+
+typedef struct {
+    A(IR_FUNCTION) * functions;
+    A(IR_LITERAL) * literals;
+    A(IR_INST) * instructions;
+} IR;
+
+fn(void, print_ir, IR scope) {
+    ground();
+
+    printf(
+        "=== Tourist's Take ===\n - %li instruction%s\n - %li literal%s\n - %li function%s (%li "
+        "total, %li builtin)\n\n",
+        scope.instructions->size,
+        scope.instructions->size == 1 ? "" : "s",
+        scope.literals->size,
+        scope.literals->size == 1 ? "" : "s",
+        scope.functions->size - (sizeof(stdlib) / sizeof(stdlib[ 0 ])),
+        scope.functions->size - (sizeof(stdlib) / sizeof(stdlib[ 0 ])) == 1 ? "" : "s",
+        scope.functions->size,
+        (sizeof(stdlib) / sizeof(stdlib[ 0 ])));
+
+    printf("== Literals ==\n");
+    for (i32 i = 0; i < scope.literals->size; i++) {
+        var item = scope.literals->array[ i ];
+        printf(
+            "- Index(%li) Type(%s) | Value(%s)\n",
+            i,
+            item.type == ir_lnum ? "number" : "string",
+            item.type == ir_lstr ? item.value.string.array : ltoa(item.value.number, scratch));
+    }
+
+    release();
+}
+
+fn(void, emit_call, A(IR_INST) * result, i call, i32 count, char *types, ctx context) {}
+
+fn(IR_INST *, emitter, i term, IR scope, ctx content) {
+    var result = ret(IR_INST);
+
+    result->op = nop;
+
+    return result;
+}
+
+// struct Entry {
+//     enum { etnum, etstr, etfn } type;
+//     union {
+//         i32    num;
+//         string str;
+//         struct {
+//             i32   name;
+//             short arg_count;
+//             byte  implemented;
+//             char *types;
+//             char  ret;
+//         } fn;
+//     } value;
+//     i32 references;
+// };
+
+// struct _ctx {
+//     string str;
+//     i32    current;
+//     A(struct Entry) * literals;
+//     A(char *) * symbols;
+// };
+
+fn(IR, emit, A(i) * term, ctx context) {
+    var output = (IR) { .functions    = (void *) ret(IR_FUNCTION, 0),
+                        .literals     = (void *) ret(IR_LITERAL, 0),
+                        .instructions = (void *) ret(IR_INST, 0) };
+
+    // clone literals and functions into the output
+    for (i32 i = 0; i < context->literals->size; i++) {
+        var item = context->literals->array[ i ];
+
+        if (item.type == etnum) {
+            var ref = (IR_LITERAL) { 0 };
+
+            ref.type         = ir_lnum;
+            ref.value.number = item.value.num;
+
+            push(output.literals, ref, mem);
+        } else if (item.type == etstr) {
+            var ref = (IR_LITERAL) { 0 };
+
+            ref.type         = ir_lstr;
+            ref.value.string = item.value.str;
+
+            push(output.literals, ref, mem);
+        } else if (item.type == etfn) {
+            var func
+                = (IR_FUNCTION) { .name = item.value.fn.name, .body = (void *) ret(IR_INST, 0) };
+
+            push(output.functions, func, mem);
+        } else {
+            error(ir_error, "Unknown literal type!");
+        }
+    }
+
+    // Compute normal terms
+    for (i32 i = 0; i < term->size; i++) {
+        var item = term->array[ i ];
+        if (item == null) continue;
+
+        var ir = emitter(item, output, context, mem);
+
+        if (ir != null) push(output.instructions, *ir, mem);
+    }
+
+    return output;
+}
+
+ctx main_setup(char *filename, Arena *scratch) {
     var con       = new (struct _ctx);
     con->current  = 0;
-    con->str      = *read_file("ts_version/tests/test.al", scratch);
+    con->str      = *read_file(filename, scratch);
     con->literals = (void *) new (struct Entry, 0);
 
     con->symbols = (void *) new (string, 0);
@@ -1074,10 +1291,13 @@ int main() {
         if (!strcmp(stdlib[ i ].name, "list")) LIST_TYPE = con->symbols->size - 1;
         if (!strcmp(stdlib[ i ].name, "num")) NUM_TYPE = con->symbols->size - 1;
         if (!strcmp(stdlib[ i ].name, "arg")) ARG_TYPE = con->symbols->size - 1;
-
-        // printf("wow %li %s\n", entry.value.fn.name, stdlib[ i ].name);
+        if (!strcmp(stdlib[ i ].name, "set")) SET_TYPE = con->symbols->size - 1;
     }
 
+    return con;
+}
+
+A(i) * main_parse(ctx con, Arena *scratch) {
     var terms = new (i, 0);
 
     parse_null(con);
@@ -1094,16 +1314,38 @@ int main() {
         parse_null(con);
     }
 
-    // Perform static analysis
-    for (i32 i = 0; i < terms->size; i++) { validate(terms->array[ i ], con, scratch); }
+    return (void *) terms;
+}
 
+int main(int argc, char **argv) {
+    ground();
+
+    if (argc != 2) {
+        printf("Usage: %s <filename>\n", argv[ 0 ]);
+        return 1;
+    }
+
+    var filename = argv[ 1 ];
+    var con      = main_setup(filename, scratch);
+
+    var terms = main_parse(con, scratch);
+
+    // Perform static analysis
+    validate((void *) terms, con, scratch);
+
+    // Generate intermediate representation
+
+    var ir = emit((void *) terms, con, scratch);
+
+    // Print AST structure
     for (i32 i = 0; i < terms->size; i++) {
         print_i(terms->array[ i ], 0, con, 1);
         printf("\n");
     }
 
-    // Generate code
-    var template = *read_file("template.c", scratch);
+    printf("\n\n");
+
+    print_ir(ir, scratch);
 
     release();
 }

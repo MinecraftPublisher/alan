@@ -2,8 +2,9 @@ node_modules/
 parser.js
 output.a
 out/
-tests/
+# tests/
 gmon.out
 analysis.txt
 output.c
 old_git/
+x86/test
