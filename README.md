@@ -40,8 +40,8 @@ puts x;
 
 ## 3. Functions
 ```
-fn say_hello [
-    arg name;
+fn void say_hello [
+    arg list name;
 
     puts "Hello, ";
     puts name;
@@ -60,9 +60,9 @@ while [ sub 256 i ] [ # Print all ASCII characters
 ];
 ```
 
-## 5. Direct C interface
+## 5. Direct C interface (Deprecated in barebones)
 ```
-fn mod [
+fn num mod [
     arg a;
     arg b;
 
@@ -76,11 +76,12 @@ log [ mod 5 2 ];
 >1. Your C interface MUST return an object of type `A`.
 >2. All variables are prefixed with `sym_`.
 >3. All functions are prefixed with `fn_`.
+>4. This feature is ONLY supported in the Typescript version of the compiler.
 
 ## 6. Fizzbuzz!
 ```
-fn fizzbuzz [
-    arg count;
+fn void fizzbuzz [
+    arg num count;
     num i 1;
 
     while [ sub count i ] [
@@ -103,13 +104,45 @@ fn fizzbuzz [
 fizzbuzz 100;
 ```
 
+# C version
+The C version is memory-safe, does all the parsing on its own and currently can convert the AST into an Intermediate Representation. The currently supported IR language is very basic and has only 10 instructions. It is semi-stack-based, pushing arguments to a dynamic stack for when functions are called. I have plans to write plugins that would convert this IR code into machine code directly, and this means I'll be able to support new architectures without having to recycle and rewrite huge parts of the code. The #1 planned architecture to be supported is x86, with #2 being arm, #3 being RISC and #4 being my own custom cpu architecture, [bit](https://github.com/MinecraftPublisher/bit).
+
+- The following code snippet:
+
+```
+num i [ add 2 5 ];
+log i;
+
+puts "Hello World!";
+```
+
+- Converts into this IR:
+
+```
+__0x35:
+    CONST 5
+    CONST 2
+    CALL __0xA      (add)            ; add 5 2
+
+main:
+    CALL __0x35     (block)
+    SET 0x1B        (i)              ; num i [ add 5 2 ]
+    ADDR [0x1B]     (i)
+    CALL __0x9      (log)            ; log i
+    ADDR 0x1C       ("Hello World!")
+    CALL __0x7      (puts)           ; puts "Hello World!"
+```
+
 # TODO and chores
 Coming soon in future updates!
 - [x] Rewrite parser in C
 - [x] Rewrite codegen in C
 - [x] Optimize performance
+- [ ] Finish the IR emitter
+- [ ] Implement a call stack and an arena stack (for return calls)
+- [ ] Write a better stdlib
 - [ ] Eliminate / shorten code
 - [ ] Implement carrying for arithmetic functions (eg. addc)
-- [ ] Implement direct linux x86 output (maybe?)
+- [ ] Implement direct linux x86 output (maybe?) (working on it)
 - [ ] Bundle code + x86 together to allow runtime code inspection and modification (maybe?)
-- [ ] Better error checking (soon)
+- [ ] Better error checking (soon) (kinda done?)

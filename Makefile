@@ -1,6 +1,6 @@
 all: clean build measure
 
-FILE = tests/example.al
+FILE = tests/fizzbuzz.al
 
 clean:
 	rm -rf out/
@@ -22,4 +22,5 @@ measure:
 	@echo
 
 debug:
-	lldb out/parser tests/example.al -o run
+	clang -rdynamic -fno-omit-frame-pointer -g parser.c -o out/parser
+	lldb out/parser $(FILE) -o run

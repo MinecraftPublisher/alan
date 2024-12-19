@@ -1,3 +1,6 @@
+// #define arena_debug
+// #define enable_debug
+
 #include <execinfo.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,20 +70,26 @@ void dump_stack() {
     strings = backtrace_symbols(array, size);
 
     if (strings != NULL) {
-        printf("Stack trace (%zd frames):\n", size);
-        for (size_t i = 0; i < size; i++) { printf("#%zu: %s\n", i, strings[ i ]); }
+        printf("    Stack trace (%zd frames):\n", size);
+        for (size_t i = 0; i < size; i++) { printf("        #%zu: %s\n", i, strings[ i ]); }
         free(strings);
     } else {
         printf("Failed to get stack trace\n");
     }
 }
 
+#ifdef arena_debug
+    #define adeb(...) __VA_ARGS__
+#else
+    #define adeb(...)
+#endif
+
 void arena_free(Arena *arena) {
-    // printf("Free(%p)\n", arena);
-    // dump_stack();
+    adeb(printf("Free(%p)\n", arena));
+    adeb(dump_stack());
     if (arena->initialized) {
         for (i32 i = 0; i < arena->blocks->size; i++) {
-            // printf("Block.Free(%p)\n", arena->blocks->array[ i ].data);
+            adeb(printf("Block.Free(%p)\n", arena->blocks->array[ i ].data));
             munmap(arena->blocks->array[ i ].data, arena->blocks->array[ i ].size);
         }
         munmap(arena->blocks->array, arena->blocks->size * arena->blocks->unit);
@@ -111,7 +120,7 @@ void *alloc(Arena *arena, i32 size) {
         if (block->size - block->used >= size) {
             void *ptr = &block->data[ block->used ];
             block->used += size;
-            // printf("Alloc(%p, %li, %p)\n", arena, size, ptr);
+            adeb(printf("Alloc(%p, %li, %p)\n", arena, size, ptr));
             return ptr;
         }
     }
@@ -147,7 +156,7 @@ void *alloc(Arena *arena, i32 size) {
 
     arena->blocks->array[ arena->blocks->size - 1 ] = new_block;
 
-    // printf("Block.New(%p, %li, %p)\n", arena, size, new_block.data);
+    adeb(printf("Block.New(%p, %li, %p)\n", arena, size, new_block.data));
     return new_block.data;
 }
 
@@ -220,22 +229,30 @@ struct _ctx {
 
 typedef struct _ctx *ctx;
 
+typedef enum { exp_void = 3, exp_block = 2, exp_num = -1, exp_list = 1, exp_any = 0 } exp_type;
+
 typedef struct i *i;
 struct i {
     enum { tstr, tnum, tcode, tcall, tref, tfn, tchr, tembd } type;
     union {
         i32 str_id;
         i32 num_id;
-        A(i) *block;
+        struct {
+            i32 size;
+            i32 unit;
+            i  *array;
+            A(char *) * symbols;
+        } *block;
         struct {
             symbol name;
             A(i) * args;
         } call;
         symbol ref;
         struct {
-            symbol name;
-            symbol entry;
-            i      block;
+            symbol   name;
+            symbol   entry;
+            exp_type type;
+            i        block;
             A(symbol) * args;
         } fn;
         char    chr;
@@ -285,7 +302,10 @@ void error(ctx con, char *text) {
     if (con == analyzer_error) printf("Overlord Error: %s\n", text);
     else if (con == ir_error)
         printf("Tourist Error: %s\n", text);
-    else { printf("Parser Error: %s\nIndex: %li\n\n", text, con->current); }
+    else {
+        for (i32 i = 0; i < con->str.size; i++) { putchar(con->str.array[ i ]); }
+        printf("\nParser Error: %s\nIndex: %li\n\n", text, con->current);
+    }
     exit(1);
 }
 
@@ -310,8 +330,6 @@ string *read_file(char *name, Arena *mem) {
 
     return text;
 }
-
-// #define enable_debug
 
 #ifdef enable_debug
     #define debug(name)                                                                            \
@@ -351,9 +369,12 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
     }
 
     else if (val->type == tfn) {
-        if (print_sym) printf("\nfn <$%li>(", val->value.fn.name);
+        if (print_sym) printf("\nfn[%i] <$%li>(", val->value.fn.type, val->value.fn.name);
         else
-            printf("fn %s (", con->symbols->array[ val->value.fn.name ]);
+            printf(
+                "fn[%s] %s (",
+                val->value.fn.type == exp_num ? "num" : "list",
+                con->symbols->array[ val->value.fn.name ]);
         for (i32 i = 0; i < val->value.fn.args->size; i++) {
             if (print_sym) printf("<$%li>", val->value.fn.args->array[ i ]);
             else { printf("%s", con->symbols->array[ labs(val->value.fn.args->array[ i ]) ]); }
@@ -414,8 +435,13 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
 // ------------------------
 
 // zero shows maximum optimization level. sacrifice compile-time for run-time.
-byte       parser_optimizations = 0;
-const byte BASIC                = 1;
+enum {
+    OPT_AGGRESSIVE = 0,
+    OPT_BASIC      = 1,
+    OPT_MEDIUM     = 2,
+    OPT_NONE       = 10
+} parser_optimizations
+    = OPT_MEDIUM;
 
 fn(symbol, parse_ref_str, ctx con) {
     if (!is_ref_firstchar(cur())) return -1;
@@ -491,7 +517,7 @@ fn(i, parse_num, ctx con) {
 
     var out_val = atoi(txt->array);
 
-    if (parser_optimizations <= BASIC) {
+    if (parser_optimizations <= OPT_MEDIUM) {
         for (i32 i = 0; i < con->literals->size; i++) {
             var cur = con->literals->array[ i ];
 
@@ -548,7 +574,7 @@ fn(i, parse_str, ctx con) {
                                                                      .references = 1 };
     entry.value.str.array[ entry.value.str.size ] = nullchar;
 
-    if (parser_optimizations <= BASIC) {
+    if (parser_optimizations <= OPT_MEDIUM) {
         for (i32 i = 0; i < con->literals->size; i++) {
             var cur = con->literals->array[ i ];
 
@@ -638,6 +664,11 @@ byte NUM_TYPE;
 byte LIST_TYPE;
 byte ARG_TYPE;
 byte SET_TYPE;
+byte RET_TYPE;
+byte IF_TYPE;
+byte UNLESS_TYPE;
+byte WHILE_TYPE;
+byte VOID_TYPE;
 
 fn(i, parse_call, ctx con) {
     var call_name = parse_ref_str(con, mem);
@@ -737,7 +768,7 @@ fn(i, parse_fn, ctx con) {
     debug(fn);
 
     var prev    = con->current;
-    var keyword = parse_ref_str(con, scratch);
+    var keyword = parse_ref_str(con, mem);
     if (keyword != 0) {
         release();
         con->current = prev;
@@ -745,8 +776,16 @@ fn(i, parse_fn, ctx con) {
     }
     parse_null(con);
 
+    var type = parse_ref_str(con, mem);
+    if (type != NUM_TYPE && type != LIST_TYPE && type != VOID_TYPE) {
+        printf("%li\n", type);
+        error(con, "Expected function type when parsing function...");
+    }
+    parse_null(con);
+
     var fn_name = parse_ref_str(con, mem);
     if (fn_name == -1) error(con, "Expected function name when parsing function...");
+    if(fn_name == NUM_TYPE || fn_name == LIST_TYPE || fn_name == VOID_TYPE) error(con, "Function name cannot be reserved words 'num', 'list', 'void'!");
 
     parse_null(con);
 
@@ -760,6 +799,14 @@ fn(i, parse_fn, ctx con) {
     i val = ret(struct i);
 
     val->type           = tfn;
+    val->value.fn.type  = type == NUM_TYPE    ? exp_num
+                          : type == LIST_TYPE ? exp_list
+                          : type == VOID_TYPE
+                              ? exp_void
+                              : ({
+                                   error(con, "Function type must be 'num', 'list' or 'void'!");
+                                   exp_void;
+                               });
     val->value.fn.name  = fn_name;
     val->value.fn.block = (void *) code;
 
@@ -768,39 +815,36 @@ fn(i, parse_fn, ctx con) {
 
     for (i32 i = 0; i < code->value.block->size; i++) {
         var current = code->value.block->array[ i ];
-        if (current->type == tcall) {
-            var name = current->value.call.name;
-            if (name == 1) { // index 1 is arg
-                var args = current->value.call.args;
+        if (current->type == tcall && current->value.call.name == ARG_TYPE) {
+            var args = current->value.call.args;
 
-                if (args->size != 2) {
-                    error(
-                        con,
-                        "A function argument call must have exactly two arguments (its type and "
-                        "name)!");
-                }
-
-                var name = args->array[ 1 ];
-                if (name->type != tref)
-                    error(con, "A function argument's name must be a reference (keyword)!");
-
-                var type = args->array[ 0 ];
-                if (type->type != tref)
-                    error(con, "A function argument's type must be a reference (type)!");
-
-                push(val->value.fn.args, name->value.ref, mem);
-                push(my_types, (type->value.ref == NUM_TYPE ? -1 : 1), mem);
-
-                if (val->value.fn.args->size > 256) {
-                    error(
-                        con,
-                        "A function cannot accept more than 256 arguments! What are you even doing "
-                        "with that many arguments?? Not writing readable code, that's for sure!");
-                }
-
-                // WARN: Block values may be null!
-                // code->value.block->array[ i ] = null;
+            if (args->size != 2) {
+                error(
+                    con,
+                    "A function argument call must have exactly two arguments (its type and "
+                    "name)!");
             }
+
+            var name = args->array[ 1 ];
+            if (name->type != tref)
+                error(con, "A function argument's name must be a reference (keyword)!");
+
+            var type = args->array[ 0 ];
+            if (type->type != tref)
+                error(con, "A function argument's type must be a reference (type)!");
+
+            push(val->value.fn.args, name->value.ref, mem);
+            push(my_types, (type->value.ref == NUM_TYPE ? -1 : 1), mem);
+
+            if (val->value.fn.args->size > 256) {
+                error(
+                    con,
+                    "A function cannot accept more than 256 arguments! What are you even doing "
+                    "with that many arguments?? Not writing readable code, that's for sure!");
+            }
+
+            // WARN: Block values may be null!
+            // code->value.block->array[ i ] = null;
         }
     }
 
@@ -829,8 +873,8 @@ typedef A(symbol) * symbolic;
 
 byte suggestions = 1;
 
-fn(char, __validate, i val, symbolic symbols, ctx context) {
-    if (val == null) return 0;
+fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type) {
+    if (val == null) return exp_void;
 
 #ifdef enable_debug
     print_i(val, 0, context, 0);
@@ -844,7 +888,7 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
 
         for (i32 i = 0; i < symbols->size; i++) {
             if (labs(symbols->array[ i ]) == labs(val->value.ref)) {
-                var magic      = symbols->array[ i ] < 0 ? -1 : 1;
+                var magic      = symbols->array[ i ] < 0 ? exp_num : exp_list;
                 val->value.ref = magic * labs(val->value.ref);
                 return magic;
             }
@@ -853,10 +897,10 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
         print_i(val, 0, context, 0);
         printf("\n\nReference index: %li\n", val->value.ref);
         error(analyzer_error, "Reference keyword not found!");
-        return 0;
+        return exp_void;
     } else if (val->type == tchr) {
         // Pass. No checks here.
-        return -1;
+        return exp_num;
     } else if (val->type == tstr) {
         if (suggestions) {
             var index = context->literals->array[ val->value.str_id ];
@@ -868,7 +912,7 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
             }
         }
 
-        return 1;
+        return exp_list;
     } else if (val->type == tnum) {
         if (suggestions) {
             var index = context->literals->array[ val->value.str_id ];
@@ -881,7 +925,7 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
             }
         }
 
-        return -1;
+        return exp_num;
     } else if (val->type == tfn) {
         if (context->literals->array[ val->value.fn.entry ].value.fn.implemented) {
             print_i(val, 0, context, 0);
@@ -898,9 +942,9 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
         //     push(clone, val->value.fn.args->array[ i ], mem);
         // }
 
-        __validate(val->value.fn.block, clone, context, mem);
+        __validate(val->value.fn.block, clone, context, val->value.fn.type, mem);
 
-        return 0;
+        return exp_void;
     } else if (val->type == tcall) {
         struct Entry target = { 0 };
         byte         found  = 0;
@@ -941,7 +985,7 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
             }
 
             push(symbols, labs(val->value.call.args->array[ 0 ]->value.ref) * -1, mem);
-            __validate(val->value.call.args->array[ 1 ], symbols, context, mem);
+            __validate(val->value.call.args->array[ 1 ], symbols, context, top_type, mem);
             return -1;
         } else if (val->value.call.name == LIST_TYPE) {
             for (i32 i = 0; i < symbols->size; i++) {
@@ -977,7 +1021,8 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
             // name type must be ref
             if (val->value.call.args->array[ 0 ]->type != tref) {
                 print_i(val, 0, context, 0);
-                error(analyzer_error, "Set command requires reference as first argument!");
+                printf("\n");
+                error(analyzer_error, "Set command requires a name as its first argument!");
             }
 
             var exists = 0;
@@ -990,18 +1035,47 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
                 }
             }
 
-            var inferred = val->value.call.args->array[ 1 ]->value.ref < 0 ? -1 : 1;
+            var inferred
+                = __validate(val->value.call.args->array[ 1 ], symbols, context, top_type, mem);
             if (!exists) { // infer type from value
                 type = inferred;
             }
 
-            if (inferred != val->value.call.args->array[ 0 ]->type) {
+            if (inferred != type && exists) {
+                print_i(val, 0, context, 0);
+                printf("\n");
                 error(analyzer_error, "Set command's target type must match the variable type!");
             }
 
             push(symbols, labs(val->value.call.args->array[ 0 ]->value.ref) * type, mem);
 
             return 0;
+        } else if (val->value.call.name == RET_TYPE) {
+            if (val->value.call.args->size == 0) {
+                if (top_type == exp_void) return 0;
+                else {
+                    print_i(val, 0, context, 0);
+                    printf("\n");
+                    error(
+                        analyzer_error,
+                        "A return command in a non-void function must have a return value!");
+                }
+            } else if (top_type == exp_void) {
+                print_i(val, 0, context, 0);
+                printf("\n");
+                error(analyzer_error, "A return command in a void function takes zero arguments!");
+            }
+
+            var value = val->value.call.args->array[ 0 ];
+            var type  = __validate(value, symbols, context, top_type, mem);
+
+            if (type != top_type) {
+                print_i(val, 0, context, 0);
+                printf("\n");
+                error(analyzer_error, "Return command's argument must match the function's type!");
+            }
+
+            return exp_void;
         }
 
         for (i32 i = 0; i < val->value.call.args->size; i++) {
@@ -1010,7 +1084,8 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
             // printf("%s %li %i %i\n", context->symbols->array[val->value.call.name], i,
             // expectation, reality);
 
-            var reality = __validate(val->value.call.args->array[ i ], symbols, context, mem);
+            var reality
+                = __validate(val->value.call.args->array[ i ], symbols, context, top_type, mem);
             if (expectation == 0) continue;
             if (expectation == 2) { // Code block
                 if (val->value.call.args->array[ i ]->type != tcode) {
@@ -1043,19 +1118,21 @@ fn(char, __validate, i val, symbolic symbols, ctx context) {
     } else if (val->type == tcode) {
         var cloned_syms = copy(symbols, mem);
 
-        char output = 0;
+        val->value.block->symbols = cloned_syms;
+
+        exp_type output = exp_void;
         for (i32 i = 0; i < val->value.block->size; i++) {
-            output = __validate(val->value.block->array[ i ], cloned_syms, context, mem);
+            output = __validate(val->value.block->array[ i ], cloned_syms, context, top_type, mem);
         }
 
         return output;
     } else if (val->type == tembd) {
         // Pass. There's no checks to be done.
-        return 0;
+        return exp_any;
     } else {
         printf("Type index: %i\n", val->type);
         error(analyzer_error, "Unknown type in validation!");
-        return 0;
+        return exp_void;
     }
 }
 
@@ -1064,7 +1141,9 @@ fn(void, validate, A(i) * terms, ctx context) {
 
     var symbols = (symbolic) ret(symbol, 0);
 
-    for (i32 i = 0; i < terms->size; i++) { __validate(terms->array[ i ], symbols, context, mem); }
+    for (i32 i = 0; i < terms->size; i++) {
+        __validate(terms->array[ i ], symbols, context, exp_void, mem);
+    }
 
     // release();
 }
@@ -1078,19 +1157,22 @@ struct standard_entry {
 
 // 0 shows any type (list or int)
 // 1 shows list type
-// 2 shows int type
+// -1 shows number type
+// 2 shows block type
+// 3 shows void type
 
 const struct standard_entry stdlib[] = {
     // Internals
-    { .name = "arg", .args = 2, .types = { 0, 0 }, .ret = 0 },    //
-    { .name = "if", .args = 2, .types = { 0, 2 }, .ret = 0 },     //
-    { .name = "unless", .args = 2, .types = { 0, 2 }, .ret = 0 }, //
-    { .name = "while", .args = 2, .types = { 0, 2 }, .ret = 0 },  //
+    { .name = "arg", .args = 2, .types = { 0, 0 }, .ret = 3 },    //
+    { .name = "if", .args = 2, .types = { 0, 2 }, .ret = 3 },     //
+    { .name = "unless", .args = 2, .types = { 0, 2 }, .ret = 3 }, //
+    { .name = "while", .args = 2, .types = { 0, 2 }, .ret = 3 },  //
+    { .name = "ret", .args = 1, .types = { 0 }, .ret = 3 },       //
     // I/O functions
-    { .name = "dump", .args = 1, .types = { 0 }, .ret = 0 },   //
+    { .name = "dump", .args = 1, .types = { 0 }, .ret = 3 },   //
     { .name = "puts", .args = 1, .types = { 1 }, .ret = 1 },   //
     { .name = "putc", .args = 1, .types = { -1 }, .ret = -1 }, //
-    { .name = "log", .args = 1, .types = { 0 }, .ret = 0 },    //
+    { .name = "log", .args = 1, .types = { 0 }, .ret = 3 },    //
     // Arithmetic and logic
     // TODO: Add higher number arithmetics
     { .name = "add", .args = 2, .types = { -1, -1 }, .ret = -1 },
@@ -1107,12 +1189,13 @@ const struct standard_entry stdlib[] = {
     { .name = "len", .args = 1, .types = { 1 }, .ret = -1 },     //
     { .name = "num", .args = 2, .types = { 0 }, .ret = -1 },     //
     { .name = "list", .args = 1, .types = { 0 }, .ret = 1 },     //
-    { .name = "set", .args = 2, .types = { 0, 0 }, .ret = 0 },   //
+    { .name = "set", .args = 2, .types = { 0, 0 }, .ret = 3 },   //
     // Threading
     { .name = "spawn", .args = 1, .types = { 2 }, .ret = -1 },   // fork(): id
-    { .name = "send", .args = 2, .types = { -1, 1 }, .ret = 0 }, // send(thread, value): value
+    { .name = "send", .args = 2, .types = { -1, 1 }, .ret = 3 }, // send(thread, value): void
     { .name = "fetch", .args = 0, .types = {}, .ret = 1 }        //
 };
+const var stdlib_size = (sizeof(stdlib) / sizeof(stdlib[ 0 ]));
 
 fn(char *, ltoa, i32 value) {
     ground();
@@ -1131,12 +1214,114 @@ fn(char *, ltoa, i32 value) {
     return real_output->array;
 }
 
+typedef i32 iaddress;
+
+/*
+
+fn num max [
+    arg num x;
+    arg num y;
+
+    set result [ cmp_ge x y ];
+
+    if result [ ret x ];
+    unless result [ ret y ];
+];
+
+log [ max 2 5 ];
+
+================================================================
+
+section(data)
+    XADDR TMP 0
+    NADDR 0x01_x 0
+    NADDR 0x01_y 0
+    NADDR 0x01_result 0
+
+section(text)
+    __fn_max:
+    __tmp_0x01:
+        POPSET x
+        POPSET y
+
+        CALL __tmp_0x02
+        POPSET result
+
+        CMP result
+        JMP0 __tmp_0x03
+        CMP result
+        JMPN0 __tmp_0x04
+
+    __tmp_0x02:
+        CONST y
+        PUSH_STACK
+        CONST x
+        PUSH_STACK
+        CALL b_cmpge
+
+    __tmp_0x03:
+        SET x
+        RET
+
+    __tmp_0x04:
+        SET y
+        RET
+
+    __tmp_0x05:
+        CONST 5
+        PUSH_STACK
+        CONST 2
+        PUSH_STACK
+        CALL __fn_max
+
+    main:
+        CALL __tmp_0x05
+        CALL b_log
+
+*/
+
 typedef struct {
-    enum { nop, void_call } op;
+    // TODO: Add more features so that bulit-in functions can be represented in the IR.
+    enum {
+        iruseless,
+        irpop,
+        irpush,
+        ircall,
+        irret,
+        irjmp0,
+        irjmpn0,
+        irnop,
+        irconst,
+        iraddr,
+        irset
+    } op;
     union {
+        struct IR_INST_POP {
+        } ipop; // Pops value from stack and places it in TMP
+        struct IR_INST_PUSH {
+        } ipush; // Push value in TMP to stack
         struct IR_INST_CALL {
-            // TODO
-        } call;
+            iaddress ref;
+        } icall; // Call address and store current PC + 1 in the stack to return.
+        struct IR_INST_RET {
+        } ret; // Pop the top value in call stack and jump to it.
+        struct IR_INST_JMP0 {
+            iaddress ref;
+        } ijmp0; // Jump to address if TMP is 0
+        struct IR_INST_JMPN0 {
+            iaddress ref;
+        } ijmpn0; // Jump to address if TMP is not 0
+        struct IR_INST_NOP {
+        } nop; // Do nothing
+        struct IR_INST_CONST {
+            i32 value;
+        } iconstant; // Set TMP to value
+        struct IR_INST_ADDR {
+            symbol value;
+        } iaddr; // Value > 0 ? Set(TMP, [value]) : Set(TMP, value)
+        struct IR_INST_SET {
+            symbol dest;
+        } iset; // Set [dest] to TMP
     } data;
 } IR_INST;
 
@@ -1153,32 +1338,163 @@ typedef struct {
     A(IR_INST) * body;
 } IR_FUNCTION;
 
+typedef A(IR_INST) * INST_LIST;
+
 typedef struct {
-    A(IR_FUNCTION) * functions;
+    A(IR_FUNCTION) * segments;
     A(IR_LITERAL) * literals;
-    A(IR_INST) * instructions;
+
+    i32 inst_count;
+    i32 main_segment;
 } IR;
 
-fn(void, print_ir, IR scope) {
+// ANSI color codes
+#define C_RESET   "\033[0m"
+#define C_BLACK   "\033[30m"
+#define C_RED     "\033[31m"
+#define C_GREEN   "\033[32m"
+#define C_YELLOW  "\033[33m"
+#define C_BLUE    "\033[34m"
+#define C_MAGENTA "\033[35m"
+#define C_CYAN    "\033[36m"
+#define C_WHITE   "\033[37m"
+
+// Bold colors
+#define C_BOLD_BLACK   "\033[1;30m"
+#define C_BOLD_RED     "\033[1;31m"
+#define C_BOLD_GREEN   "\033[1;32m"
+#define C_BOLD_YELLOW  "\033[1;33m"
+#define C_BOLD_BLUE    "\033[1;34m"
+#define C_BOLD_MAGENTA "\033[1;35m"
+#define C_BOLD_CYAN    "\033[1;36m"
+#define C_BOLD_WHITE   "\033[1;37m"
+
+// Bright colors
+#define C_BRIGHT_BLACK   "\033[90m"
+#define C_BRIGHT_RED     "\033[91m"
+#define C_BRIGHT_GREEN   "\033[92m"
+#define C_BRIGHT_YELLOW  "\033[93m"
+#define C_BRIGHT_BLUE    "\033[94m"
+#define C_BRIGHT_MAGENTA "\033[95m"
+#define C_BRIGHT_CYAN    "\033[96m"
+#define C_BRIGHT_WHITE   "\033[97m"
+
+// Macro to print colored text
+#define COLOR_TEXT(color, text) color text C_RESET
+
+// Macros for convenience
+#define black(text)   COLOR_TEXT(C_BLACK, text)
+#define red(text)     COLOR_TEXT(C_RED, text)
+#define green(text)   COLOR_TEXT(C_GREEN, text)
+#define yellow(text)  COLOR_TEXT(C_YELLOW, text)
+#define blue(text)    COLOR_TEXT(C_BLUE, text)
+#define magenta(text) COLOR_TEXT(C_MAGENTA, text)
+#define cyan(text)    COLOR_TEXT(C_CYAN, text)
+#define white(text)   COLOR_TEXT(C_WHITE, text)
+
+#define bold_black(text)   COLOR_TEXT(C_BOLD_BLACK, text)
+#define bold_red(text)     COLOR_TEXT(C_BOLD_RED, text)
+#define bold_green(text)   COLOR_TEXT(C_BOLD_GREEN, text)
+#define bold_yellow(text)  COLOR_TEXT(C_BOLD_YELLOW, text)
+#define bold_blue(text)    COLOR_TEXT(C_BOLD_BLUE, text)
+#define bold_magenta(text) COLOR_TEXT(C_BOLD_MAGENTA, text)
+#define bold_cyan(text)    COLOR_TEXT(C_BOLD_CYAN, text)
+#define bold_white(text)   COLOR_TEXT(C_BOLD_WHITE, text)
+
+#define bright_black(text)   COLOR_TEXT(C_BRIGHT_BLACK, text)
+#define bright_red(text)     COLOR_TEXT(C_BRIGHT_RED, text)
+#define bright_green(text)   COLOR_TEXT(C_BRIGHT_GREEN, text)
+#define bright_yellow(text)  COLOR_TEXT(C_BRIGHT_YELLOW, text)
+#define bright_blue(text)    COLOR_TEXT(C_BRIGHT_BLUE, text)
+#define bright_magenta(text) COLOR_TEXT(C_BRIGHT_MAGENTA, text)
+#define bright_cyan(text)    COLOR_TEXT(C_BRIGHT_CYAN, text)
+#define bright_white(text)   COLOR_TEXT(C_BRIGHT_WHITE, text)
+
+#define pop_value "25"
+#define POS_ALIGN "\033[" pop_value "G" C_BRIGHT_BLACK
+
+void print_inst(IR_INST inst, IR scope, ctx context) {
+    switch (inst.op) {
+        case irpop: printf("POP\n"); break;
+        case irpush: printf("PUSH\n"); break;
+        case ircall:;
+            var my_name = scope.segments->array[ inst.data.icall.ref ].name;
+            printf(
+                red("CALL") yellow(" __0x%lX ") POS_ALIGN "; %s\n",
+                my_name < 0 ? -my_name : inst.data.icall.ref,
+                my_name < 0 ? "block" : context->symbols->array[ my_name ]);
+            break;
+        case irret: printf("RET\n"); break;
+        case irjmp0: printf(red("JMP0 ") yellow("__0x%lX\n"), inst.data.ijmp0.ref); break;
+        case irjmpn0: printf(red("JMPN0") yellow(" __0x%lX\n"), inst.data.ijmpn0.ref); break;
+        case irconst: printf(magenta("CONST ") green("%li\n"), inst.data.iconstant.value); break;
+        case iraddr: {
+            var abs     = labs(inst.data.iaddr.value);
+            var noderef = inst.data.iaddr.value < 0;
+            printf(
+                bright_blue("ADDR") " %s" yellow("0x%lX") "%s " POS_ALIGN "; %s%s%s\n",
+                noderef ? "" : "[",
+                abs,
+                noderef ? "" : "]",
+                noderef ? "\"" : "[",
+                abs > context->symbols->size ? "unknown"
+                : noderef                    ? (context->literals->array[ abs ].value.str.array)
+                                             : context->symbols->array[ abs ],
+                noderef ? "\"" : "]");
+            break;
+        }
+        case irset:
+            printf(
+                green("SET ") yellow("0x%lX ") POS_ALIGN "; %s\n",
+                inst.data.iset.dest,
+                inst.data.iset.dest > context->symbols->size
+                    ? "unknown"
+                    : context->symbols->array[ inst.data.iaddr.value ]);
+        case irnop: /* printf("NOP\n"); break; */
+        case iruseless: printf("\r\r\r\r"); break;
+    }
+
+    printf(C_RESET);
+}
+
+fn(void, tourist, IR scope, ctx context) {
     ground();
 
+    printf("== Intermediate Representation ==\n\n");
+    for (i32 i = scope.segments->size; i >= 0; i--) {
+        var cur = scope.segments->array[ i ];
+
+        if (*(i32 *) &cur == 0) continue;
+        if (cur.body->size == 0) continue;
+
+        if (cur.name == 1) printf(bold_blue("main") ":\n");
+        else
+            printf(bold_blue("__0x%lX") ":\n", i);
+        for (i32 j = 0; j < cur.body->size; j++) {
+            var inst = cur.body->array[ j ];
+            printf("    ");
+            print_inst(inst, scope, context);
+        }
+        printf("\n");
+    }
+
     printf(
-        "=== Tourist's Take ===\n - %li instruction%s\n - %li literal%s\n - %li function%s (%li "
+        "=== Tourist's Take ===\n - %li instruction%s\n - %li literal%s\n - %li segment%s (%li "
         "total, %li builtin)\n\n",
-        scope.instructions->size,
-        scope.instructions->size == 1 ? "" : "s",
+        scope.inst_count,
+        scope.inst_count == 1 ? "" : "s",
         scope.literals->size,
         scope.literals->size == 1 ? "" : "s",
-        scope.functions->size - (sizeof(stdlib) / sizeof(stdlib[ 0 ])),
-        scope.functions->size - (sizeof(stdlib) / sizeof(stdlib[ 0 ])) == 1 ? "" : "s",
-        scope.functions->size,
-        (sizeof(stdlib) / sizeof(stdlib[ 0 ])));
+        scope.segments->size - stdlib_size * 2,
+        (scope.segments->size - stdlib_size * 2) == 1 ? "" : "s",
+        scope.segments->size - stdlib_size,
+        stdlib_size);
 
     printf("== Literals ==\n");
     for (i32 i = 0; i < scope.literals->size; i++) {
         var item = scope.literals->array[ i ];
         printf(
-            "- Index(%li) Type(%s) | Value(%s)\n",
+            " - Index(%li) Type(%s) | Value(%s)\n",
             i,
             item.type == ir_lnum ? "number" : "string",
             item.type == ir_lstr ? item.value.string.array : ltoa(item.value.number, scratch));
@@ -1187,43 +1503,196 @@ fn(void, print_ir, IR scope) {
     release();
 }
 
-fn(void, emit_call, A(IR_INST) * result, i call, i32 count, char *types, ctx context) {}
+const IR_INST push_stack = { .op = irpush, .data = {} };
+const IR_INST nop = { .op = irnop, .data.nop = {} };
 
-fn(IR_INST *, emitter, i term, IR scope, ctx content) {
-    var result = ret(IR_INST);
+fn(void, represent, i term, IR *scope, INST_LIST cur, ctx context) {
+    if (term == null) return;
+    scope->inst_count++;
 
-    result->op = nop;
+    var result = (IR_INST) { .op = iruseless };
 
-    return result;
+    if (term->type == tchr) {
+        result.op                   = irconst;
+        result.data.iconstant.value = term->value.chr;
+    } else if (term->type == tnum) {
+        result.op                   = irconst;
+        result.data.iconstant.value = context->literals->array[ term->value.num_id ].value.num;
+    } else if (term->type == tstr) { // what to do here?
+        result.op               = iraddr;
+        result.data.iaddr.value = -term->value.str_id;
+    } else if (term->type == tref) {
+        result.op               = iraddr;
+        result.data.iaddr.value = labs(term->value.ref);
+    } else if (term->type == tcall) {
+        var name = term->value.call.name;
+        // TODO: Custom native handling (eg. set, ret)
+
+        if (name == NUM_TYPE) {
+            result.op             = irset;
+            result.data.iset.dest = term->value.call.args->array[ 0 ]->value.ref;
+
+            represent(term->value.call.args->array[ 1 ], scope, cur, context, mem);
+
+            goto END;
+        } else if (name == LIST_TYPE) {
+            // Initialize a list
+            represent(term->value.call.args->array[ 0 ], scope, cur, context, mem);
+
+            result.op             = ircall;
+            result.data.icall.ref = LIST_TYPE;
+
+            goto END;
+        } else if (name == IF_TYPE) {
+            var seg_name = scope->segments->size;
+            var me       = (IR_FUNCTION) { .name = -seg_name, .body = (void *) ret(IR_INST, 0) };
+            push(scope->segments, me, mem);
+
+            represent(term->value.call.args->array[ 0 ], scope, cur, context, mem);
+
+            result.op              = irjmpn0;
+            result.data.ijmpn0.ref = seg_name;
+
+            represent(term->value.call.args->array[ 1 ], scope, (void *) me.body, context, mem);
+
+            // cur->size--;
+
+            goto END;
+        } else if (name == UNLESS_TYPE) {
+            var seg_name = scope->segments->size;
+            var me       = (IR_FUNCTION) { .name = -seg_name, .body = (void *) ret(IR_INST, 0) };
+            push(scope->segments, me, mem);
+
+            represent(term->value.call.args->array[ 0 ], scope, cur, context, mem);
+
+            result.op              = irjmp0;
+            result.data.ijmp0.ref = seg_name;
+
+            represent(term->value.call.args->array[ 1 ], scope, (void *) me.body, context, mem);
+
+            goto END;
+        } else if (name == WHILE_TYPE) {
+            var seg_name = scope->segments->size;
+            var me       = (IR_FUNCTION) { .name = -seg_name, .body = (void *) ret(IR_INST, 0) };
+            push(scope->segments, me, mem);
+
+            represent(term->value.call.args->array[ 0 ], scope, cur, context, mem);
+
+            result.op              = irjmpn0;
+            result.data.ijmpn0.ref = seg_name;
+
+            represent(term->value.call.args->array[ 1 ], scope, (void *) me.body, context, mem);
+
+            represent(term->value.call.args->array[ 0 ], scope, (void *) me.body, context, mem);
+
+            push(me.body, result, mem);
+
+            goto END;
+        } else if (name == SET_TYPE) {
+            represent(term->value.call.args->array[ 1 ], scope, cur, context, mem);
+
+            result.op             = irset;
+            result.data.iset.dest = term->value.call.args->array[ 0 ]->value.ref;
+
+            goto END;
+        } else if (name == RET_TYPE) {
+            represent(term->value.call.args->array[ 0 ], scope, cur, context, mem);
+
+            result.op             = ircall;
+            result.data.icall.ref = RET_TYPE;
+
+            goto END;
+        } else if (name == ARG_TYPE) {
+            // FIXME
+            var pop_stack = (IR_INST) { .op = irpop, .data.ipop = {} };
+
+            push(cur, pop_stack, mem);
+
+            result.op             = irset;
+            result.data.iset.dest = term->value.call.args->array[ 1 ]->value.ref;
+
+            goto END;
+        }
+
+        var push_stack = (IR_INST) { .op = irpush, .data.ipush = {} };
+
+        for (i32 i = term->value.call.args->size - 1; i >= 0; i--) {
+            represent(term->value.call.args->array[ i ], scope, cur, context, mem);
+            push(cur, push_stack, mem);
+        }
+
+        result.op = ircall;
+
+        var real_name = scope->segments->array[ name ].name;
+
+        for (i32 i = 0; i < scope->segments->size; i++) {
+            if (scope->segments->array[ i ].name != name) continue;
+            real_name = i;
+        }
+
+        result.data.icall.ref = real_name;
+    } else if (term->type == tcode) {
+        if (term->value.block->size >= 16 || parser_optimizations > OPT_MEDIUM) {
+            var seg_name = scope->segments->size;
+            var me       = (IR_FUNCTION) { .name = -seg_name, .body = (void *) ret(IR_INST, 0) };
+            push(scope->segments, me, mem);
+
+            for (i32 i = 0; i < term->value.block->size; i++) {
+                represent(term->value.block->array[ i ], scope, (INST_LIST) me.body, context, mem);
+            }
+
+            result.op             = ircall;
+            result.data.icall.ref = seg_name;
+        } else {
+            for (i32 i = 0; i < term->value.block->size; i++) {
+                represent(term->value.block->array[ i ], scope, cur, context, mem);
+            }
+
+            // result.op = irnop;
+        }
+    } else if (term->type == tfn) {
+        var my_segment
+            = (IR_FUNCTION) { .name = term->value.fn.name, .body = (void *) ret(IR_INST, 0) };
+        push(scope->segments, my_segment, mem);
+
+        for (i32 i = 0; i < term->value.fn.block->value.block->size; i++) {
+            represent(
+                term->value.fn.block->value.block->array[ i ],
+                scope,
+                (INST_LIST) my_segment.body,
+                context,
+                mem);
+        }
+    } else if (term->type == tembd) {
+        error(ir_error, "Embedded direct code is not supported!");
+    } else {
+        error(ir_error, "Unknown AST node type!");
+    }
+
+END:
+    // printf("```\n");
+
+    // print_i(term, 0, context, 0);
+    // printf("\n");
+
+    // print_inst(result, context);
+
+    // printf("```\n\n\n");
+
+    push(cur, result, mem);
+    // if (result.op == irconst) push(cur, push_stack, mem);
 }
 
-// struct Entry {
-//     enum { etnum, etstr, etfn } type;
-//     union {
-//         i32    num;
-//         string str;
-//         struct {
-//             i32   name;
-//             short arg_count;
-//             byte  implemented;
-//             char *types;
-//             char  ret;
-//         } fn;
-//     } value;
-//     i32 references;
-// };
-
-// struct _ctx {
-//     string str;
-//     i32    current;
-//     A(struct Entry) * literals;
-//     A(char *) * symbols;
-// };
-
 fn(IR, emit, A(i) * term, ctx context) {
-    var output = (IR) { .functions    = (void *) ret(IR_FUNCTION, 0),
-                        .literals     = (void *) ret(IR_LITERAL, 0),
-                        .instructions = (void *) ret(IR_INST, 0) };
+    var output = (IR) { .segments   = (void *) ret(IR_FUNCTION, 0),
+                        .literals   = (void *) ret(IR_LITERAL, 0),
+                        .inst_count = 0 };
+
+    var main_segment = (IR_FUNCTION) { .name = 1, .body = (void *) ret(IR_INST, 0) };
+
+    push(output.segments, main_segment, mem);
+
+    for (i32 t_p = 0; t_p < stdlib_size; t_p++) { push(output.segments, (IR_FUNCTION) { 0 }, mem); }
 
     // clone literals and functions into the output
     for (i32 i = 0; i < context->literals->size; i++) {
@@ -1247,20 +1716,20 @@ fn(IR, emit, A(i) * term, ctx context) {
             var func
                 = (IR_FUNCTION) { .name = item.value.fn.name, .body = (void *) ret(IR_INST, 0) };
 
-            push(output.functions, func, mem);
+            push(output.segments, func, mem);
         } else {
             error(ir_error, "Unknown literal type!");
         }
     }
+
+    // var push_stack = (IR_INST) { .op = irpush, .data.ipush = {} };
 
     // Compute normal terms
     for (i32 i = 0; i < term->size; i++) {
         var item = term->array[ i ];
         if (item == null) continue;
 
-        var ir = emitter(item, output, context, mem);
-
-        if (ir != null) push(output.instructions, *ir, mem);
+        represent(item, &output, (void *) main_segment.body, context, mem);
     }
 
     return output;
@@ -1275,6 +1744,8 @@ ctx main_setup(char *filename, Arena *scratch) {
     con->symbols = (void *) new (string, 0);
 
     push(con->symbols, "fn", scratch);
+    push(con->symbols, "void", scratch);
+    VOID_TYPE = 1;
 
     // push stdlib
     for (i32 i = 0; i < sizeof(stdlib) / sizeof(struct standard_entry); i++) {
@@ -1292,6 +1763,10 @@ ctx main_setup(char *filename, Arena *scratch) {
         if (!strcmp(stdlib[ i ].name, "num")) NUM_TYPE = con->symbols->size - 1;
         if (!strcmp(stdlib[ i ].name, "arg")) ARG_TYPE = con->symbols->size - 1;
         if (!strcmp(stdlib[ i ].name, "set")) SET_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "ret")) RET_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "if")) IF_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "unless")) UNLESS_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "while")) WHILE_TYPE = con->symbols->size - 1;
     }
 
     return con;
@@ -1305,7 +1780,6 @@ A(i) * main_parse(ctx con, Arena *scratch) {
         var result = parse_action(con, scratch);
         if (result == null) {
             parse_null(con);
-            printf("%li %li\n", con->current, con->str.size);
             if (!eof()) { error(con, "Invalid syntax!"); }
         }
 
@@ -1339,13 +1813,13 @@ int main(int argc, char **argv) {
 
     // Print AST structure
     for (i32 i = 0; i < terms->size; i++) {
-        print_i(terms->array[ i ], 0, con, 1);
+        print_i(terms->array[ i ], 0, con, 0);
         printf("\n");
     }
 
     printf("\n\n");
 
-    print_ir(ir, scratch);
+    tourist(ir, con, scratch);
 
     release();
 }

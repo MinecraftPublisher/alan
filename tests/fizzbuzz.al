@@ -1,4 +1,4 @@
-fn fizzbuzz [
+fn num fizzbuzz [
     arg num count;
     num i 1;
 
@@ -7,7 +7,7 @@ fn fizzbuzz [
         num mod_5 [ mod i 5 ];
         num and_val [ and mod_3 mod_5 ];
 
-        if and_val [ log i; ];
+        if and_val [ log i ];
         unless and_val [
             unless mod_3 [ puts "Fizz" ];
             unless mod_5 [ puts "Buzz" ];
