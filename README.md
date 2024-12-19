@@ -13,6 +13,12 @@ It *may* be turing-complete (I haven't checked, but it probably is), but it requ
 
 ---
 
+## Experimental Alcc (C rewrite) build:
+>This version is in-development and is not fully fledged, as in it only produces an intermediate representation and not an output x86 binary.
+1. Install clang and make
+2. Clone the repo and cd into it
+3. Run `make`. The parser executable will be in the `out/` folder and it will also automatically run it with a fizzbuzz test file.
+
 ## Build:
 >Currently only the typescript version that emits C code and compiles it using `clang` is available. The C version will emit machine code directly with no dependency requirements and it is a work in progress.
 1. Install bun
