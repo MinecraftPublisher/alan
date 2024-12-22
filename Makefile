@@ -1,6 +1,6 @@
 all: clean build measure
 
-FILE = tests/fizzbuzz.al
+FILE = tests/example.al
 
 clean:
 	rm -rf out/
