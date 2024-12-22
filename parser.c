@@ -860,7 +860,8 @@ fn(i, parse_fn, ctx con) {
                                  .value.fn = { .arg_count   = val->value.fn.args->size,
                                                .name        = fn_name,
                                                .implemented = 0,
-                                               .types       = my_types->array } };
+                                               .types       = my_types->array,
+                                               .ret = val->value.fn.type } };
     push(con->literals, entry, mem);
 
     val->value.fn.entry = con->literals->size - 1;
@@ -1181,6 +1182,7 @@ const struct standard_entry stdlib[] = {
     { .name = "puts", .args = 1, .types = { 1 }, .ret = 1 },   //
     { .name = "putc", .args = 1, .types = { -1 }, .ret = -1 }, //
     { .name = "log", .args = 1, .types = { 0 }, .ret = 3 },    //
+    { .name = "print", .args = 1, .types = { 1 }, .ret = 3 },  //
     // Arithmetic and logic
     // TODO: Add higher number arithmetics
     { .name = "add", .args = 2, .types = { -1, -1 }, .ret = -1 },
@@ -1191,6 +1193,7 @@ const struct standard_entry stdlib[] = {
     { .name = "and", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
     { .name = "or", .args = 2, .types = { -1, -1 }, .ret = -1 },  //
     { .name = "not", .args = 1, .types = { -1 }, .ret = -1 },     //
+    { .name = "dec", .args = 1, .types = { -1 }, .ret = -1 },     //
     // Array manipulation
     { .name = "get", .args = 2, .types = { 1, -1 }, .ret = -1 }, // get(list, index): num
     { .name = "push", .args = 2, .types = { 1, -1 }, .ret = 1 }, // push(list, value): list
@@ -1397,14 +1400,15 @@ void print_inst(IR_INST inst, IR scope, ctx context) {
             var is_str   = inst.data.iaddr.actuator == 1;
             var abs      = is_str ? 1 : inst.scope->array[ topindex ]->array[ subindex ];
 
-            var name = is_str ? context->literals->array[ abs2 ].value.str.array :
-                noderef ? context->symbols->array[ abs ] : context->symbols->array[ abs ];
+            var name = is_str    ? context->literals->array[ abs2 ].value.str.array
+                       : noderef ? context->symbols->array[ abs ]
+                                 : context->symbols->array[ abs ];
 
             /*
                 abs > context->symbols->size ? "unknown"
                 : noderef                    ? !is_str ? context->symbols->array[ abs ]
-                                                       : (context->literals->array[ abs2 ].value.str.array)
-                                             : context->symbols->array[ abs ]
+                                                       : (context->literals->array[ abs2
+               ].value.str.array) : context->symbols->array[ abs ]
             */
 
             printf(
@@ -1414,9 +1418,13 @@ void print_inst(IR_INST inst, IR scope, ctx context) {
                 is_str ? 0 : inst.scope->array[ topindex ]->array[ 0 ],
                 is_str ? abs2 : subindex,
                 noderef ? "" : "]",
-                is_str ? "\"" : noderef ? "" : "[",
+                is_str    ? "\""
+                : noderef ? ""
+                          : "[",
                 name,
-                is_str ? "\"" : noderef ? "" : "]");
+                is_str    ? "\""
+                : noderef ? ""
+                          : "]");
             break;
         }
         case irset:;
@@ -1519,7 +1527,8 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
                 if (cur != target) continue;
 
                 result.data.iaddr.value = ((i64) i << 32) + (i64) j;
-                // printf("Is(%i) %llX\n", context->literals->array[term->value.ref].type, result.data.iaddr.value);
+                // printf("Is(%i) %llX\n", context->literals->array[term->value.ref].type,
+                // result.data.iaddr.value);
                 result.data.iaddr.value *= term->value.ref > 0 ? -1 : 1;
                 // printf("%s %li\n", context->symbols->array[target], term->value.ref);
                 goto END;

@@ -110,6 +110,38 @@ fn void fizzbuzz [
 fizzbuzz 100;
 ```
 
+## 7. Add two strings together
+```
+fn list cat [
+    arg list left;
+    arg list right;
+
+    list result;
+
+    set left_len [ len left ];
+    set right_len [ len right ];
+
+    set li 0;
+    set ri 0;
+
+    while [ sub left_len li ] [
+        push result [ get left li ];
+        set li [ dec li ];
+    ];
+
+    while [ sub right_len ri ] [
+        push result [ get right ri ];
+        set ri [ dec ri ];
+    ];
+
+    ret result;
+];
+
+print [ cat "Hello, " "World!" ];
+```
+This should print `Hello, World!`.
+
+
 # C version
 The C version is memory-safe, does all the parsing on its own and currently can convert the AST into an Intermediate Representation. The currently supported IR language is very basic and has only 10 instructions. It is semi-stack-based, pushing arguments to a dynamic stack for when functions are called. I have plans to write plugins that would convert this IR code into machine code directly, and this means I'll be able to support new architectures without having to recycle and rewrite huge parts of the code. The #1 planned architecture to be supported is x86, with #2 being arm, #3 being RISC and #4 being my own custom cpu architecture, [bit](https://github.com/MinecraftPublisher/bit).
 
@@ -125,18 +157,19 @@ puts "Hello World!";
 - Converts into this IR:
 
 ```
-__0x35:
-    CONST 5
-    CONST 2
-    CALL __0xA      (add)            ; add 5 2
-
 main:
-    CALL __0x35     (block)
-    SET 0x1B        (i)              ; num i [ add 5 2 ]
-    ADDR [0x1B]     (i)
-    CALL __0x9      (log)            ; log i
-    ADDR 0x1C       ("Hello World!")
-    CALL __0x7      (puts)           ; puts "Hello World!"
+    CONST 5
+    PUSH
+    CONST 2
+    PUSH
+    CALL __0x28                ; add
+    SET 0x0_1                  ; i
+    ADDR [0x0_1]               ; [i]
+    PUSH
+    CALL __0x26                ; log
+    ADDR 0x0_1F                ; "Hello World!"
+    PUSH
+    CALL __0x24                ; puts
 ```
 
 # TODO and chores
@@ -144,11 +177,13 @@ Coming soon in future updates!
 - [x] Rewrite parser in C
 - [x] Rewrite codegen in C
 - [x] Optimize performance
-- [ ] Finish the IR emitter
-- [ ] Implement a call stack and an arena stack (for return calls)
+- [x] Finish the IR emitter (done besides bug fixes and testing)
+- [x] Eliminate / shorten code pass 1
 - [ ] Write a better stdlib
+- [ ] Implement a call stack and an arena stack (for return calls)
 - [ ] Eliminate / shorten code
+- [ ] Better syntax?
 - [ ] Implement carrying for arithmetic functions (eg. addc)
-- [ ] Implement direct linux x86 output (maybe?) (working on it)
+- [ ] Implement direct linux x86 output (maybe?) (working on it) (there's not enough resources)
 - [ ] Bundle code + x86 together to allow runtime code inspection and modification (maybe?)
 - [ ] Better error checking (soon) (kinda done?)

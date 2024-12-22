@@ -11,9 +11,16 @@ fn list cat [
     set ri 0;
 
     while [ sub left_len li ] [
-        set result [ push result [ get left li ] ];
-        set li [ add li 1 ];
+        push result [ get left li ];
+        set li [ dec li ];
     ];
+
+    while [ sub right_len ri ] [
+        push result [ get right ri ];
+        set ri [ dec ri ];
+    ];
+
+    ret result;
 ];
 
-cat "Hi" "Hello";
+print [ cat "Hello, " "World!" ];
