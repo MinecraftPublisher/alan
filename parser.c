@@ -861,7 +861,7 @@ fn(i, parse_fn, ctx con) {
                                                .name        = fn_name,
                                                .implemented = 0,
                                                .types       = my_types->array,
-                                               .ret = val->value.fn.type } };
+                                               .ret         = val->value.fn.type } };
     push(con->literals, entry, mem);
 
     val->value.fn.entry = con->literals->size - 1;
@@ -1172,11 +1172,11 @@ struct standard_entry {
 
 const struct standard_entry stdlib[] = {
     // Internals
+    { .name = "ret", .args = 1, .types = { 0 }, .ret = 3 },       //
     { .name = "arg", .args = 2, .types = { 0, 0 }, .ret = 3 },    //
     { .name = "if", .args = 2, .types = { 0, 2 }, .ret = 3 },     //
     { .name = "unless", .args = 2, .types = { 0, 2 }, .ret = 3 }, //
     { .name = "while", .args = 2, .types = { 0, 2 }, .ret = 3 },  //
-    { .name = "ret", .args = 1, .types = { 0 }, .ret = 3 },       //
     // I/O functions
     { .name = "dump", .args = 1, .types = { 0 }, .ret = 3 },   //
     { .name = "puts", .args = 1, .types = { 1 }, .ret = 1 },   //
@@ -1186,14 +1186,20 @@ const struct standard_entry stdlib[] = {
     // Arithmetic and logic
     // TODO: Add higher number arithmetics
     { .name = "add", .args = 2, .types = { -1, -1 }, .ret = -1 },
-    { .name = "sub", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
-    { .name = "mul", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
-    { .name = "div", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
-    { .name = "mod", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
-    { .name = "and", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
-    { .name = "or", .args = 2, .types = { -1, -1 }, .ret = -1 },  //
-    { .name = "not", .args = 1, .types = { -1 }, .ret = -1 },     //
-    { .name = "dec", .args = 1, .types = { -1 }, .ret = -1 },     //
+    { .name = "sub", .args = 2, .types = { -1, -1 }, .ret = -1 },    //
+    { .name = "mul", .args = 2, .types = { -1, -1 }, .ret = -1 },    //
+    { .name = "div", .args = 2, .types = { -1, -1 }, .ret = -1 },    //
+    { .name = "mod", .args = 2, .types = { -1, -1 }, .ret = -1 },    //
+    { .name = "and", .args = 2, .types = { -1, -1 }, .ret = -1 },    //
+    { .name = "or", .args = 2, .types = { -1, -1 }, .ret = -1 },     //
+    { .name = "not", .args = 1, .types = { -1 }, .ret = -1 },        //
+    { .name = "dec", .args = 1, .types = { -1 }, .ret = -1 },        //
+    { .name = "cmp_gt", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
+    { .name = "cmp_lt", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
+    { .name = "cmp_eq", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
+    { .name = "cmp_ne", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
+    { .name = "cmp_ge", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
+    { .name = "cmp_le", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
     // Array manipulation
     { .name = "get", .args = 2, .types = { 1, -1 }, .ret = -1 }, // get(list, index): num
     { .name = "push", .args = 2, .types = { 1, -1 }, .ret = 1 }, // push(list, value): list
@@ -1692,13 +1698,6 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             result.data.iset.dest = resolved;
 
             goto END;
-        } else if (name == RET_TYPE) {
-            represent(term->value.call.args->array[ 0 ], scope, name_scope, cur, context, mem);
-
-            result.op             = ircall;
-            result.data.icall.ref = RET_TYPE;
-
-            goto END;
         } else if (name == ARG_TYPE) {
             // FIXME
             var pop_stack = (IR_INST) { .op = irpop, .data.ipop = {} };
@@ -1959,7 +1958,6 @@ int main(int argc, char **argv) {
     validate((void *) terms, con, scratch);
 
     // Generate intermediate representation
-
     var ir = emit((void *) terms, con, scratch);
 
     // Print AST structure
@@ -1974,3 +1972,13 @@ int main(int argc, char **argv) {
 
     release();
 }
+
+
+
+
+
+
+
+
+
+// Literally 
