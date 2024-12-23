@@ -18,8 +18,7 @@ global  _start
 %endmacro
 
 _start:
-    mov edx, 1
-    mov eax, 2
-    mov rax, rbx
+    mov eax, 0x10101010
+    ret
 
     exit(0)

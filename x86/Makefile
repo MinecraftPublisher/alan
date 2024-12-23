@@ -7,6 +7,8 @@ nasm_build:
 	nasm -felf64 test.s
 	ld test.o -o test
 	rm -rf test.o
+
+run:
 	@echo ./test
 	@echo
 	@./test
