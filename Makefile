@@ -7,20 +7,20 @@ clean:
 	mkdir out
 
 build:
-	clang -g parser.c -o out/parser
+	clang -g alan.c -o out/alc
 
 run:
-	@echo out/parser $(FILE)
+	@echo out/alc $(FILE)
 	@echo
-	@out/parser $(FILE)
+	@out/alc $(FILE)
 	@echo
 
 measure:
-	@echo time out/parser $(FILE)
+	@echo time out/alc $(FILE)
 	@echo
-	@fish -c "time out/parser $(FILE)"
+	@fish -c "time out/alc $(FILE)"
 	@echo
 
 debug:
-	clang -rdynamic -fno-omit-frame-pointer -g parser.c -o out/parser
-	lldb out/parser $(FILE) -o run
+	clang -rdynamic -fno-omit-frame-pointer -g alan.c -o out/alc
+	lldb out/alc $(FILE) -o run
