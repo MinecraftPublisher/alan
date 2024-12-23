@@ -173,17 +173,26 @@ main:
 ```
 
 # TODO and chores
-Coming soon in future updates!
+Coming soon in future updates! I've started work on the x86 output, so expect this spot to be pretty cluttered.
+- [ ] Implement a call stack and an arena stack (for return calls)
+- [ ] `pop(mov [cur_stack], %rex);`
+- [ ] `push(push_stack %rex);`
+- [ ] `call(complicated...);`
+- [ ] `ret(complicated...);`
+- [ ] `jmp0(cmp %rex; jmp0 [addr]);`
+- [ ] `jmpn0(reverse of jmp0)`
+- [ ] `addrI(mov %rex, addr);`
+- [ ] `addrD(mov %rex, [addr]);`
+- [ ] `set(mov [addr], %rex);`
+- [ ] Implement direct linux x86 output (working on it)
+- [ ] Better error checking (soon) (kinda done?)
+- [ ] Better syntax?
+- [ ] Write a better stdlib
+- [ ] Implement carrying for arithmetic functions (eg. addc)
+- [ ] Eliminate / shorten code
+- [ ] Bundle code + x86 together to allow runtime code inspection and modification (maybe?)
 - [x] Rewrite parser in C
 - [x] Rewrite codegen in C
 - [x] Optimize performance
 - [x] Finish the IR emitter (done besides bug fixes and testing)
 - [x] Eliminate / shorten code pass 1
-- [ ] Write a better stdlib
-- [ ] Implement a call stack and an arena stack (for return calls)
-- [ ] Eliminate / shorten code
-- [ ] Better syntax?
-- [ ] Implement carrying for arithmetic functions (eg. addc)
-- [ ] Implement direct linux x86 output (maybe?) (working on it) (there's not enough resources)
-- [ ] Bundle code + x86 together to allow runtime code inspection and modification (maybe?)
-- [ ] Better error checking (soon) (kinda done?)
