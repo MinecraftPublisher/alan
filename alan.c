@@ -1727,9 +1727,9 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             result.data.iset.dest = resolved;
 
             goto END;
-        } else if(name == RET_TYPE) {
-            for(i32 i = 0; i < term->value.call.args->size; i++) {
-                represent(term->value.call.args->array[i], scope, name_scope, cur, context, mem);
+        } else if (name == RET_TYPE) {
+            for (i32 i = 0; i < term->value.call.args->size; i++) {
+                represent(term->value.call.args->array[ i ], scope, name_scope, cur, context, mem);
             }
 
             result.op = irret;
@@ -1893,17 +1893,16 @@ fn(IR, emit, A(i) * term, ctx context) {
     return output;
 }
 
-typedef A(byte)* bytecode;
+typedef A(byte) * bytecode;
 
 int get_eax_value() {
     int eax_value;
 
     // Inline assembly to move the value in EAX into the variable 'eax_value'
-    __asm__ (
-        "mov %%eax, %0;"  // Move the value in EAX into the C variable eax_value
-        : "=r" (eax_value) // Output: store the value of EAX into eax_value
-        :                  // No input operands
-        : "%eax"           // Clobber: We are modifying the EAX register
+    __asm__("mov %%eax, %0;"  // Move the value in EAX into the C variable eax_value
+            : "=r"(eax_value) // Output: store the value of EAX into eax_value
+            :                 // No input operands
+            : "%eax"          // Clobber: We are modifying the EAX register
     );
 
     return eax_value;
@@ -1946,9 +1945,7 @@ fn(void, machine_addr_immediate, i32 value, bytecode target) {
 }
 
 // RET
-fn(void, machine_ret, bytecode target) {
-    push(target, 0xc3, mem);
-}
+fn(void, machine_ret, bytecode target) { push(target, 0xc3, mem); }
 
 ctx main_setup(char *filename, Arena *scratch) {
     var con       = new (struct _ctx);
@@ -1981,6 +1978,7 @@ ctx main_setup(char *filename, Arena *scratch) {
         if (!strcmp(stdlib[ i ].name, "ret")) RET_TYPE = con->symbols->size - 1;
         if (!strcmp(stdlib[ i ].name, "if")) IF_TYPE = con->symbols->size - 1;
         if (!strcmp(stdlib[ i ].name, "unless")) UNLESS_TYPE = con->symbols->size - 1;
+        // Literally
         if (!strcmp(stdlib[ i ].name, "while")) WHILE_TYPE = con->symbols->size - 1;
     }
 
@@ -2007,18 +2005,16 @@ A(i) * main_parse(ctx con, Arena *scratch) {
 }
 
 void print_bytecode(bytecode target) {
-    for (size_t i = 0; i < target->size; ++i) {
-        printf("%02x ", target->array[i]);
-    }
+    for (size_t i = 0; i < target->size; ++i) { printf("%02x ", target->array[ i ]); }
     printf("\n");
 }
 
-void __dummy() {}
-typedef typeof(__dummy)* mc;
+void                     __dummy() {}
+typedef typeof(__dummy) *mc;
 
 mc get_exec(bytecode target) {
-    var executable = mmap(NULL, target->size, PROT_READ | PROT_WRITE | PROT_EXEC,
-                                    MAP_ANON | MAP_PRIVATE, -1, 0);
+    var executable = mmap(
+        NULL, target->size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
     memcpy(executable, target->array, target->size);
 
     return executable;
@@ -2056,7 +2052,7 @@ int main(int argc, char **argv) {
     // x86 test
     // var test = (bytecode)new(char, 0);
     // machine_const(30, test, scratch);
-    // machine_ret(test, scratch);    
+    // machine_ret(test, scratch);
 
     // var function_pointer = get_exec(test);
 
@@ -2068,13 +2064,3 @@ int main(int argc, char **argv) {
 
     release();
 }
-
-
-
-
-
-
-
-
-
-// Literally 
