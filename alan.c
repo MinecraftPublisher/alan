@@ -2,14 +2,15 @@
 // #define enable_debug
 
 #include <execinfo.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 
 typedef unsigned char byte;
-typedef long          i32;
-typedef long long     i64;
+typedef int32_t       i32;
+typedef int64_t       i64;
 #define null NULL
 char nullchar = '\0';
 
@@ -184,6 +185,7 @@ void extend(A array, i32 count, Arena *mem) {
     array->array = alloc(mem, sizeof(byte) * (array->size + count + 1) * array->unit);
     memcpy(array->array, old, array->size * array->unit);
     array->size += count;
+    // printf("Extend(0x%p, 0x%p);\n", old, array->array);
 }
 
 void *copy(void *_array, Arena *mem) {
@@ -305,7 +307,7 @@ void error(ctx con, char *text) {
         printf("Tourist Error: %s\n", text);
     else {
         for (i32 i = 0; i < con->str.size; i++) { putchar(con->str.array[ i ]); }
-        printf("\nLibrarian Error: %s\nIndex: %li\n\n", text, con->current);
+        printf("\nLibrarian Error: %s\nIndex: %i\n\n", text, con->current);
     }
     exit(1);
 }
@@ -351,7 +353,7 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
     if (val == null) printf("\r");
 
     else if (val->type == tref) {
-        if (print_sym) printf("<$%li>", val->value.ref);
+        if (print_sym) printf("<$%i>", val->value.ref);
         else { printf("%s", con->symbols->array[ labs(val->value.ref) ]); }
     }
 
@@ -360,17 +362,17 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
     }
 
     else if (val->type == tstr) {
-        if (print_sym) printf("<\"%li>", val->value.str_id);
+        if (print_sym) printf("<\"%i>", val->value.str_id);
         else { printf("\"%s\"", con->literals->array[ val->value.str_id ].value.str.array); }
     }
 
     else if (val->type == tnum) {
-        if (print_sym) printf("<#%li>", val->value.str_id);
-        else { printf("%li", con->literals->array[ val->value.str_id ].value.num); }
+        if (print_sym) printf("<#%i>", val->value.str_id);
+        else { printf("%i", con->literals->array[ val->value.str_id ].value.num); }
     }
 
     else if (val->type == tfn) {
-        if (print_sym) printf("\nfn[%i] <$%li>(", val->value.fn.type, val->value.fn.name);
+        if (print_sym) printf("\nfn[%i] <$%i>(", val->value.fn.type, val->value.fn.name);
         else {
             printf(
                 "fn[%s] %s (",
@@ -380,7 +382,7 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
                 con->symbols->array[ val->value.fn.name ]);
         }
         for (i32 i = 0; i < val->value.fn.args->size; i++) {
-            if (print_sym) printf("<$%li>", val->value.fn.args->array[ i ]);
+            if (print_sym) printf("<$%i>", val->value.fn.args->array[ i ]);
             else { printf("%s", con->symbols->array[ labs(val->value.fn.args->array[ i ]) ]); }
             if (i + 1 < val->value.fn.args->size) printf(", ");
         }
@@ -391,7 +393,7 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
     }
 
     else if (val->type == tcall) {
-        if (print_sym) printf("<$%li>", val->value.call.name);
+        if (print_sym) printf("<$%i>", val->value.call.name);
         else
             printf("%s", con->symbols->array[ val->value.call.name ]);
         for (i32 i = 0; i < val->value.call.args->size; i++) {
@@ -434,9 +436,7 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
     }
 }
 
-// ------------------------
-// -------- PARSER --------
-// ------------------------
+// ======== Librarian (Parser) ========
 
 const unsigned long stdlib_size;
 
@@ -785,7 +785,7 @@ fn(i, parse_fn, ctx con) {
 
     var type = parse_ref_str(con, mem);
     if (type != NUM_TYPE && type != LIST_TYPE && type != VOID_TYPE) {
-        printf("%li\n", type);
+        printf("%i\n", type);
         error(con, "Expected function type when parsing function...");
     }
     parse_null(con);
@@ -878,6 +878,8 @@ fn(i, parse_action, ctx con) {
     return value;
 }
 
+// ======== Inspector (Static analyzer) ========
+
 typedef A(symbol) * symbolic;
 
 byte suggestions = 1;
@@ -904,7 +906,7 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
         }
 
         print_i(val, 0, context, 0);
-        printf("\n\nReference index: %li\n", val->value.ref);
+        printf("\n\nReference index: %i\n", val->value.ref);
         error(analyzer_error, "Reference keyword not found!");
         return exp_void;
     } else if (val->type == tchr) {
@@ -927,7 +929,7 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
             var index = context->literals->array[ val->value.str_id ];
             if (index.references > 5 && (abs((int) index.value.num) > 2)) {
                 printf(
-                    "<Overlord> Hey, there are way too many references to the number %li. You "
+                    "<Overlord> Hey, there are way too many references to the number %i. You "
                     "should probably make it a constant!\n",
                     index.value.num);
                 context->literals->array[ val->value.str_id ].references = 0;
@@ -975,7 +977,7 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
         if (target.value.fn.arg_count != val->value.call.args->size) {
             print_i(val, 0, context, 0);
             printf(
-                "\n\nReferenced call: '%s' expected %i arguments but got %li\n",
+                "\n\nReferenced call: '%s' expected %i arguments but got %i\n",
                 context->symbols->array[ val->value.call.name ],
                 target.value.fn.arg_count,
                 val->value.call.args->size);
@@ -1100,7 +1102,7 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
                 if (val->value.call.args->array[ i ]->type != tcode) {
                     print_i(val, 0, context, 0);
                     printf(
-                        "\n\nReferenced call: '%s' on argument %li:\n    ",
+                        "\n\nReferenced call: '%s' on argument %i:\n    ",
                         context->symbols->array[ val->value.call.name ],
                         i);
                     print_i(val->value.call.args->array[ i ], 0, context, 0);
@@ -1111,7 +1113,7 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
                 if (expectation != reality) {
                     print_i(val, 0, context, 0);
                     printf(
-                        "\n\nReferenced call: '%s' on argument %li:\n    ",
+                        "\n\nReferenced call: '%s' on argument %i:\n    ",
                         context->symbols->array[ val->value.call.name ],
                         i);
                     print_i(val->value.call.args->array[ i ], 0, context, 0);
@@ -1232,6 +1234,8 @@ fn(char *, ltoa, i32 value) {
     return real_output->array;
 }
 
+// ======== Tourist (Intermediate Representation Generator) ========
+
 typedef i32 iaddress;
 typedef i64 complexsym;
 
@@ -1307,6 +1311,12 @@ typedef struct {
 
 typedef A(IR_INST) * INST_LIST;
 
+struct compiler_data {
+    i32 data_size;
+
+    A(i64) * reserves;
+};
+
 typedef struct {
     A(IR_FUNCTION) * segments;
     A(IR_LITERAL) * literals;
@@ -1314,6 +1324,8 @@ typedef struct {
     i32 inst_count;
     i32 main_segment;
     i32 global_name_scope_id;
+
+    struct compiler_data *compiler_data;
 } IR;
 
 // ANSI color codes
@@ -1390,14 +1402,14 @@ void print_inst(IR_INST inst, IR scope, ctx context) {
         case ircall:;
             var my_name = scope.segments->array[ inst.data.icall.ref ].name;
             printf(
-                red("CALL") yellow(" __0x%lX ") POS_ALIGN "; %s\n",
+                red("CALL") yellow(" __0x%X ") POS_ALIGN "; %s\n",
                 my_name < 0 ? -my_name : inst.data.icall.ref,
                 my_name < 0 ? "block" : context->symbols->array[ my_name ]);
             break;
         case irret: printf("RET\n"); break;
-        case irjmp0: printf(red("JMP0 ") yellow("__0x%lX\n"), inst.data.ijmp0.ref); break;
-        case irjmpn0: printf(red("JMPN0") yellow(" __0x%lX\n"), inst.data.ijmpn0.ref); break;
-        case irconst: printf(magenta("CONST ") green("%li\n"), inst.data.iconstant.value); break;
+        case irjmp0: printf(red("JMP0 ") yellow("__0x%X\n"), inst.data.ijmp0.ref); break;
+        case irjmpn0: printf(red("JMPN0") yellow(" __0x%X\n"), inst.data.ijmpn0.ref); break;
+        case irconst: printf(magenta("CONST ") green("%i\n"), inst.data.iconstant.value); break;
         case iraddr: {
             var abs2     = llabs(inst.data.iaddr.value);
             var noderef  = inst.data.iaddr.value < 0;
@@ -1419,7 +1431,7 @@ void print_inst(IR_INST inst, IR scope, ctx context) {
 
             printf(
                 bright_blue("ADDR") " "
-                                    "%s" yellow("0x%lX_%llX") "%s" POS_ALIGN "; %s%s%s\n",
+                                    "%s" yellow("0x%X_%llX") "%s" POS_ALIGN "; %s%s%s\n",
                 noderef ? "" : "[",
                 is_str ? 0 : inst.scope->array[ topindex ]->array[ 0 ],
                 is_str ? abs2 : subindex,
@@ -1439,7 +1451,7 @@ void print_inst(IR_INST inst, IR scope, ctx context) {
             var topindex = abs2 >> 32;
             var abs      = inst.scope->array[ topindex ]->array[ subindex ];
             printf(
-                green("SET") " " yellow("0x%lX_%llx") POS_ALIGN "; %s\n",
+                green("SET") " " yellow("0x%X_%llx") POS_ALIGN "; %s\n",
                 inst.scope->array[ topindex ]->array[ 0 ],
                 subindex,
                 abs > context->symbols->size ? "unknown" : context->symbols->array[ abs ]);
@@ -1465,7 +1477,7 @@ fn(void, tourist, IR scope, ctx context) {
 
         if (cur.name == 1) printf(bold_blue("main") ":\n");
         else
-            printf(bold_blue("__0x%lX") ":\n", i);
+            printf(bold_blue("__0x%X") ":\n", i);
         for (i32 j = 0; j < cur.body->size; j++) {
             var inst = cur.body->array[ j ];
             if (inst.op == iruseless || inst.op == irnop) {
@@ -1479,7 +1491,7 @@ fn(void, tourist, IR scope, ctx context) {
     }
 
     printf(
-        "=== Tourist's Take ===\n - %li instruction%s\n - %li literal%s\n - %li segment%s (%li "
+        "=== Tourist's Take ===\n - %i instruction%s\n - %i literal%s\n - %li segment%s (%li "
         "total, %li builtin)\n\n",
         scope.inst_count - skips,
         scope.inst_count - skips == 1 ? "" : "s",
@@ -1493,11 +1505,14 @@ fn(void, tourist, IR scope, ctx context) {
     printf("== Literals ==\n");
     for (i32 i = 0; i < scope.literals->size; i++) {
         var item = scope.literals->array[ i ];
+        scope.compiler_data->data_size += item.type == ir_lnum ? 0 : item.value.string.size;
         printf(
-            " - Index(%li) Type(%s) | Value(%s)\n",
+            " - Index(%i) Type(%s) | Value(%s%s%s)\n",
             i,
             item.type == ir_lnum ? "number" : "string",
-            item.type == ir_lstr ? item.value.string.array : ltoa(item.value.number, scratch));
+            item.type == ir_lstr ? "\"" : "",
+            item.type == ir_lstr ? item.value.string.array : ltoa(item.value.number, scratch),
+            item.type == ir_lstr ? "\"" : "");
     }
 
     release();
@@ -1546,15 +1561,20 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
         error(ir_error, "Invalid or unknown reference!");
     } else if (term->type == tcall) {
         var name = term->value.call.name;
-        // TODO: Custom native handling (eg. set, ret)
 
         if (name == NUM_TYPE) {
             result.op  = irset;
             var target = term->value.call.args->array[ 0 ]->value.ref;
 
             push(name_scope->array[ name_scope->size - 1 ], target, mem);
-            result.data.iset.dest = (((i64) name_scope->size - 1) << 32)
-                                    + (i64) (name_scope->array[ name_scope->size - 1 ]->size - 1);
+
+            var topindex = (i64) name_scope->size - 1;
+            var subindex = (i64) name_scope->array[ name_scope->size - 1 ]->size - 1;
+
+            result.data.iset.dest = (topindex << 32) + subindex;
+
+            var resolved = llabs(result.data.iset.dest);
+            push(scope->compiler_data->reserves, resolved, mem);
 
             represent(term->value.call.args->array[ 1 ], scope, name_scope, cur, context, mem);
 
@@ -1566,12 +1586,17 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
 
             represent(term->value.call.args->array[ 0 ], scope, name_scope, cur, context, mem);
 
+            var resolved = llabs(cur->array[ cur->size - 1 ].data.iaddr.value);
+            var subindex = (resolved << 32) >> 32;
+            var topindex = resolved >> 32;
+            push(scope->compiler_data->reserves, resolved, mem);
+
             result.op = ircall;
 
             var real_name = scope->segments->array[ name ].name;
 
             for (i32 i = 0; i < scope->segments->size; i++) {
-                if (scope->segments->array[ i ].name != name) continue;
+                if (scope->segments->array[ i ].name != LIST_TYPE) continue;
                 real_name = i;
             }
 
@@ -1691,6 +1716,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             push(name_scope->array[ name_scope->size - 1 ], target, mem);
             resolved = (((i64) name_scope->size - 1) << 32)
                        + (i64) (name_scope->array[ name_scope->size - 1 ]->size - 1);
+            push(scope->compiler_data->reserves, resolved, mem);
 
         SET_FINISH:
 
@@ -1708,18 +1734,22 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             var resolved = (i64) -1;
 
             for (i32 i = name_scope->size - 1; i >= 0; i--) {
-                var scope = name_scope->array[ i ];
+                var _scope = name_scope->array[ i ];
 
-                for (i32 j = 0; j < scope->size; j++) {
-                    var cur = scope->array[ j ];
+                for (i32 j = 0; j < _scope->size; j++) {
+                    var cur = _scope->array[ j ];
                     if (labs(cur) != labs(target)) continue;
 
                     resolved = (((i64) i) << 32) + (i64) j;
+                    push(scope->compiler_data->reserves, resolved, mem);
                     goto ARG_FINISH;
                 }
             }
 
             // error here
+            print_i(term, 0, context, 0);
+            printf("\n\n");
+            error(ir_error, "Argument reference was not found! Is this a bug?");
 
         ARG_FINISH:
 
@@ -1835,10 +1865,12 @@ END:
 }
 
 fn(IR, emit, A(i) * term, ctx context) {
-    var output = (IR) { .segments             = (void *) ret(IR_FUNCTION, 0),
-                        .literals             = (void *) ret(IR_LITERAL, 0),
-                        .inst_count           = 0,
-                        .global_name_scope_id = 0 };
+    var output                     = (IR) { .segments             = (void *) ret(IR_FUNCTION, 0),
+                                            .literals             = (void *) ret(IR_LITERAL, 0),
+                                            .inst_count           = 0,
+                                            .global_name_scope_id = 0,
+                                            .compiler_data        = ret(struct compiler_data) };
+    output.compiler_data->reserves = (void *) ret(i64, 0);
 
     var main_segment = (IR_FUNCTION) { .name = 1, .body = (void *) ret(IR_INST, 0) };
 
@@ -1892,6 +1924,66 @@ fn(IR, emit, A(i) * term, ctx context) {
 
     return output;
 }
+
+// ======== Setup functions ========
+
+ctx main_setup(char *filename, Arena *scratch) {
+    var con       = new (struct _ctx);
+    con->current  = 0;
+    con->str      = *read_file(filename, scratch);
+    con->literals = (void *) new (struct Entry, 0);
+
+    con->symbols = (void *) new (string, 0);
+
+    push(con->symbols, "fn", scratch);
+    push(con->symbols, "void", scratch);
+    VOID_TYPE = 1;
+
+    // push stdlib
+    for (i32 i = 0; i < sizeof(stdlib) / sizeof(struct standard_entry); i++) {
+        push(con->symbols, stdlib[ i ].name, scratch);
+
+        var entry = (struct Entry) { .type     = etfn,
+                                     .value.fn = { .name        = con->symbols->size - 1,
+                                                   .arg_count   = stdlib[ i ].args,
+                                                   .implemented = 1,
+                                                   .types       = (char *) stdlib[ i ].types,
+                                                   .ret         = stdlib[ i ].ret } };
+        push(con->literals, entry, scratch);
+
+        if (!strcmp(stdlib[ i ].name, "list")) LIST_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "num")) NUM_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "arg")) ARG_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "set")) SET_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "ret")) RET_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "if")) IF_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "unless")) UNLESS_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "while")) WHILE_TYPE = con->symbols->size - 1;
+    }
+
+    return con;
+}
+
+A(i) * main_parse(ctx con, Arena *scratch) {
+    var terms = new (i, 0);
+
+    parse_null(con);
+    while (!eof()) {
+        var result = parse_action(con, scratch);
+        if (result == null) {
+            parse_null(con);
+            if (!eof()) { error(con, "Invalid syntax!"); }
+        }
+
+        push(terms, result, scratch);
+        if (skip() != ';') error(con, "Expected semicolon...");
+        parse_null(con);
+    }
+
+    return (void *) terms;
+}
+
+// ======== Scribe (x86 backend) ========
 
 typedef A(byte) * bytecode;
 
@@ -1947,75 +2039,87 @@ fn(void, machine_addr_immediate, i32 value, bytecode target) {
 // RET
 fn(void, machine_ret, bytecode target) { push(target, 0xc3, mem); }
 
-ctx main_setup(char *filename, Arena *scratch) {
-    var con       = new (struct _ctx);
-    con->current  = 0;
-    con->str      = *read_file(filename, scratch);
-    con->literals = (void *) new (struct Entry, 0);
+#define EI_NIDENT 16
 
-    con->symbols = (void *) new (string, 0);
+typedef struct {
+    unsigned char e_ident[ EI_NIDENT ]; // ELF identification
+    uint16_t      e_type;               // Object file type
+    uint16_t      e_machine;            // Machine type
+    uint32_t      e_version;            // Object file version
+    uint64_t      e_entry;              // Entry point address
+    uint64_t      e_phoff;              // Program header offset
+    uint64_t      e_shoff;              // Section header offset
+    uint32_t      e_flags;              // Processor-specific flags
+    uint16_t      e_ehsize;             // ELF header size
+    uint16_t      e_phentsize;          // Size of program header entry
+    uint16_t      e_phnum;              // Number of program header entries
+    uint16_t      e_shentsize;          // Size of section header entry
+    uint16_t      e_shnum;              // Number of section header entries
+    uint16_t      e_shstrndx;           // Section header string table index
+} Elf64_Ehdr;
 
-    push(con->symbols, "fn", scratch);
-    push(con->symbols, "void", scratch);
-    VOID_TYPE = 1;
+// Function to initialize and return an ELF header
+Elf64_Ehdr create_elf_header() {
+    Elf64_Ehdr header;
 
-    // push stdlib
-    for (i32 i = 0; i < sizeof(stdlib) / sizeof(struct standard_entry); i++) {
-        push(con->symbols, stdlib[ i ].name, scratch);
+    // Initialize the ELF identification
+    memset(header.e_ident, 0, EI_NIDENT);
+    header.e_ident[ 0 ] = 0x7f; // ELF magic number
+    header.e_ident[ 1 ] = 'E';
+    header.e_ident[ 2 ] = 'L';
+    header.e_ident[ 3 ] = 'F';
+    header.e_ident[ 4 ] = 2; // 64-bit architecture
+    header.e_ident[ 5 ] = 1; // Little-endian
+    header.e_ident[ 6 ] = 1; // ELF version
+    header.e_ident[ 7 ] = 0; // OS/ABI
+    header.e_ident[ 8 ] = 0; // ABI version
+    // Remaining e_ident bytes are zero
 
-        var entry = (struct Entry) { .type     = etfn,
-                                     .value.fn = { .name        = con->symbols->size - 1,
-                                                   .arg_count   = stdlib[ i ].args,
-                                                   .implemented = 1,
-                                                   .types       = (char *) stdlib[ i ].types,
-                                                   .ret         = stdlib[ i ].ret } };
-        push(con->literals, entry, scratch);
+    // Set other fields
+    header.e_type      = 2;                  // Executable file
+    header.e_machine   = 62;                 // x86-64
+    header.e_version   = 1;                  // Current version
+    header.e_entry     = 0;                  // Entry point address (to be set later)
+    header.e_phoff     = sizeof(Elf64_Ehdr); // Program header offset
+    header.e_shoff     = 0;                  // Section header offset (to be set later)
+    header.e_flags     = 0;                  // Processor-specific flags
+    header.e_ehsize    = sizeof(Elf64_Ehdr); // ELF header size
+    header.e_phentsize = 0;                  // Size of program header entry (to be set later)
+    header.e_phnum     = 0;                  // Number of program header entries (to be set later)
+    header.e_shentsize = 0;                  // Size of section header entry (to be set later)
+    header.e_shnum     = 0;                  // Number of section header entries (to be set later)
+    header.e_shstrndx  = 0;                  // Section header string table index (to be set later)
 
-        if (!strcmp(stdlib[ i ].name, "list")) LIST_TYPE = con->symbols->size - 1;
-        if (!strcmp(stdlib[ i ].name, "num")) NUM_TYPE = con->symbols->size - 1;
-        if (!strcmp(stdlib[ i ].name, "arg")) ARG_TYPE = con->symbols->size - 1;
-        if (!strcmp(stdlib[ i ].name, "set")) SET_TYPE = con->symbols->size - 1;
-        if (!strcmp(stdlib[ i ].name, "ret")) RET_TYPE = con->symbols->size - 1;
-        if (!strcmp(stdlib[ i ].name, "if")) IF_TYPE = con->symbols->size - 1;
-        if (!strcmp(stdlib[ i ].name, "unless")) UNLESS_TYPE = con->symbols->size - 1;
-        // Literally
-        if (!strcmp(stdlib[ i ].name, "while")) WHILE_TYPE = con->symbols->size - 1;
-    }
-
-    return con;
+    return header;
 }
 
-A(i) * main_parse(ctx con, Arena *scratch) {
-    var terms = new (i, 0);
+fn(void, machine_elf, bytecode target) {
+    // Generate ELF header
+    var  _elf_header                      = create_elf_header();
+    char elf_header[ sizeof(Elf64_Ehdr) ] = { 0 };
+    memcpy(elf_header, &_elf_header, sizeof(Elf64_Ehdr));
 
-    parse_null(con);
-    while (!eof()) {
-        var result = parse_action(con, scratch);
-        if (result == null) {
-            parse_null(con);
-            if (!eof()) { error(con, "Invalid syntax!"); }
-        }
-
-        push(terms, result, scratch);
-        if (skip() != ';') error(con, "Expected semicolon...");
-        parse_null(con);
+    for (i32 i = 0; i < sizeof(Elf64_Ehdr); i++) {
+        var ch = elf_header[ i ];
+        push(target, ch, mem);
     }
-
-    return (void *) terms;
 }
 
 void print_bytecode(bytecode target) {
-    for (size_t i = 0; i < target->size; ++i) { printf("%02x ", target->array[ i ]); }
+    for (size_t i = 0; i < target->size; ++i) {
+        printf("%02x ", target->array[ i ]);
+        if (i % 8 == 7 && i > 0) printf("\n");
+    }
     printf("\n");
 }
 
 void                     __dummy() {}
 typedef typeof(__dummy) *mc;
 
-mc get_exec(bytecode target) {
-    var executable = mmap(
-        NULL, target->size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
-    memcpy(executable, target->array, target->size);
+mc get_exec(byte *target, i32 size) {
+    var executable
+        = mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
+    memcpy(executable, target, size);
 
     return executable;
 }
@@ -2040,27 +2144,31 @@ int main(int argc, char **argv) {
     var ir = emit((void *) terms, con, scratch);
 
     // Print AST structure
-    for (i32 i = 0; i < terms->size; i++) {
-        print_i(terms->array[ i ], 0, con, 0);
-        printf("\n");
-    }
+    // for (i32 i = 0; i < terms->size; i++) {
+    // print_i(terms->array[ i ], 0, con, 0);
+    // printf("\n");
+    // }
 
-    printf("\n\n");
+    // printf("\n\n");
 
-    tourist(ir, con, scratch);
+    // tourist(ir, con, scratch);
 
     // x86 test
-    // var test = (bytecode)new(char, 0);
-    // machine_const(30, test, scratch);
-    // machine_ret(test, scratch);
 
-    // var function_pointer = get_exec(test);
+    var test = (bytecode) new (char, 0);
+    machine_elf(test, scratch);
+    var func_start = test->size;
 
-    // function_pointer();
+    machine_const(32, test, scratch);
+    machine_ret(test, scratch);
 
-    // printf("%i\n", get_eax_value());
+    var function_pointer = get_exec(&(test->array[ func_start ]), test->size);
 
-    // print_bytecode(test);
+    function_pointer();
+
+    printf("%i\n\n", get_eax_value());
+
+    print_bytecode(test);
 
     release();
 }
