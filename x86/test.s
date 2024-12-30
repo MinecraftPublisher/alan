@@ -4,8 +4,10 @@ msg db 'Hello World!', 0Ah     ; assign msg variable with your message string
 section .text
 global  _start
 
+bits 64
+
 %macro sys 1
-    mov eax, %1
+    mov rax, %1
     int 0x80
 %endmacro
 
@@ -13,12 +15,17 @@ global  _start
 %define cexit 1
 
 %macro exit 1
-    mov ebx, %1
+    mov rbx, %1
     sys(cexit)
 %endmacro
 
 _start:
-    mov eax, 0x10101010
-    ret
+    ; move 64-bit value into register
+    mov rax, 0x1122334455667788
+    mov [rbx], rax
+    mov rax, [rbx]
+    syscall
+    ; ret
 
-    exit(0)
+    mov rbx, rax
+    sys(cexit)

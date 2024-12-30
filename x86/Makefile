@@ -4,8 +4,8 @@ fasm_build:
 	fasm test.s
 
 nasm_build:
-	nasm -felf64 test.s
-	ld test.o -o test
+	nasm -f elf64 test.s
+	ld test.o -o test -melf_x86_64
 	rm -rf test.o
 
 run:
@@ -15,4 +15,6 @@ run:
 
 objdump:
 	objdump -d test
-	@objdump -d test | ./disbin.js
+	@# objdump -d test | ./disbin.js
+	@echo
+	@echo

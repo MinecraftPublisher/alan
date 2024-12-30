@@ -1,6 +1,6 @@
 all: clean build measure
 
-FILE = tests/example.al
+FILE = tests/hello_world.al
 
 clean:
 	rm -rf out/
@@ -13,7 +13,6 @@ run:
 	@echo out/alc $(FILE)
 	@echo
 	@out/alc $(FILE)
-	@echo
 
 measure:
 	@echo time out/alc $(FILE)
