@@ -1988,8 +1988,8 @@ A(i) * main_parse(ctx con, Arena *scratch) {
 typedef A(byte) * bytecode;
 
 struct Pointer {
-    i64 offset;
-    i64 index;
+    i64 value;
+    i64 put_in;
 };
 typedef A(struct Pointer) * indexes;
 
@@ -2037,6 +2037,12 @@ fn(void, machine_rbx, i64 value, bytecode target) {
     machine_emit_qword(value, target, mem);
 }
 
+fn(void, machine_rcx, i64 value, bytecode target) {
+    push(target, 0x48, mem);
+    push(target, 0xb9, mem);
+    machine_emit_qword(value, target, mem);
+}
+
 fn(void, machine_rdi, i64 value, bytecode target) {
     push(target, 0x48, mem);
     push(target, 0xbf, mem);
@@ -2079,16 +2085,16 @@ fn(void, machine_put_pointer, struct Pointer ptr, bytecode target, indexes repla
     machine_rbx(0, target, mem);
 }
 
-fn(void, machine_rax_in_ptr, i64 ptr, bytecode target, indexes replace_pointers, i64 st_st_target) {
-    struct Pointer our_index = { .index = target->size + 2, .offset = ptr * 8 + st_st_target };
+fn(void, machine_rax_in_ptr, i64 ptr, bytecode target, indexes replace_pointers) {
+    struct Pointer our_index = { .put_in = target->size + 2, .value = ptr * 8 };
     machine_put_pointer(our_index, target, replace_pointers, mem);
     push(target, 0x48, mem);
     push(target, 0x8b, mem);
     push(target, 0x00, mem);
 }
 
-fn(void, machine_ptr_in_rax, i64 ptr, bytecode target, indexes replace_pointers, i64 st_st_target) {
-    struct Pointer our_index = { .index = target->size + 2, .offset = ptr * 8 + st_st_target };
+fn(void, machine_ptr_in_rax, i64 ptr, bytecode target, indexes replace_pointers) {
+    struct Pointer our_index = { .put_in = target->size + 2, .value = ptr * 8 };
     push(replace_pointers, our_index, mem);
     machine_rax(0x0, target, mem);
     push(target, 0x48, mem);
@@ -2142,6 +2148,68 @@ fn(void, machine_r9d, i64 value, bytecode target) {
     push(target, 0x41, mem);
     push(target, 0xb9, mem);
     machine_emit_dword(value, target, mem);
+}
+
+fn(void, machine_jmp0, i64 where, bytecode target, indexes replace_pointers) {
+    // RBX contains the actual jump location, whilst RCX contains the address right after the JMP.
+
+    var rbx_place = target->size + 2;
+    machine_rbx(0, target, mem);
+
+    var rcx_place = target->size + 2;
+    machine_rcx(0, target, mem);
+
+    // cmp rax, 0
+    push(target, 0x48, mem);
+    push(target, 0x83, mem);
+    push(target, 0xf8, mem);
+    push(target, 0x00, mem);
+
+    // cmovne rcx, rbx
+    push(target, 0x48, mem);
+    push(target, 0x0f, mem);
+    push(target, 0x45, mem);
+    push(target, 0xd9, mem);
+
+    push(target, 0xff, mem);
+    push(target, 0xe3, mem);
+
+    struct Pointer rcx_dex = { .put_in = rcx_place, .value = target->size };
+    push(replace_pointers, rcx_dex, mem);
+
+    struct Pointer rbx_dex = { .put_in = rbx_place, .value = where };
+    push(replace_pointers, rbx_dex, mem);
+}
+
+fn(void, machine_jmpn0, i64 where, bytecode target, indexes replace_pointers) {
+    // RBX contains the actual jump location, whilst RCX contains the address right after the JMP.
+
+    var rbx_place = target->size + 2;
+    machine_rbx(0, target, mem);
+
+    var rcx_place = target->size + 2;
+    machine_rcx(0, target, mem);
+
+    // cmp rax, 0
+    push(target, 0x48, mem);
+    push(target, 0x83, mem);
+    push(target, 0xf8, mem);
+    push(target, 0x00, mem);
+
+    // cmovne rcx, rbx
+    push(target, 0x48, mem);
+    push(target, 0x0f, mem);
+    push(target, 0x44, mem);
+    push(target, 0xd9, mem);
+
+    push(target, 0xff, mem);
+    push(target, 0xe3, mem);
+
+    struct Pointer rcx_dex = { .put_in = rcx_place, .value = target->size };
+    push(replace_pointers, rcx_dex, mem);
+
+    struct Pointer rbx_dex = { .put_in = rbx_place, .value = where };
+    push(replace_pointers, rbx_dex, mem);
 }
 
 fn(void, machine_mmap, bytecode target) {
@@ -2317,13 +2385,14 @@ fn(void, insert_ptr_space, IR ir, bytecode target) {
     for (i32 i = 0; i < ir.compiler_data->reserves->size; i++) { extend((void *) target, 8, mem); }
 }
 
-void replace_bytecode_pointers(byte *target, i64 function_offset, indexes pointers) {
+void replace_bytecode_pointers(
+    byte *target, i64 function_offset, i64 st_st_target, indexes pointers) {
     var destination = &target[ -function_offset ];
     for (i64 i = 0; i < pointers->size; i++) {
-        var addr = (i64 *) (&target[ pointers->array[ i ].index - function_offset ]);
+        var addr = (i64 *) (&destination[ pointers->array[ i ].put_in ]);
         // printf("replacing %li with %lX\n", pointers->array[ i ].index, (i64) destination +
         // pointers->array[ i ].offset);
-        *addr = (i64) destination + pointers->array[ i ].offset;
+        *addr = (i64) destination + pointers->array[ i ].value + st_st_target;
     }
 
     // printf("\n");
@@ -2365,43 +2434,59 @@ int main(int argc, char **argv) {
     var test             = (bytecode) new (char, 0);
     var replace_pointers = (indexes) new (struct Pointer, 0);
 
+    // Used for separating preprocessing values
     var st_st_target = test->size;
     insert_ptr_space(ir, test, scratch);
 
     var func_start = test->size;
 
-    // machine_rax_in_ptr(0x0, test, (void *) replace_pointers, st_st_target, scratch);
-    // machine_rax(32, test, scratch);
-    // machine_ptr_in_rax(0x0, test, (void *) replace_pointers, st_st_target, scratch);
+    {
+        // put rax in pointer, put 32 in rax and restore rax from pointer
 
-    machine_mmap(test, scratch);
-    machine_esi(32, test, scratch);
-    machine_syscall(test, scratch);
+        // machine_rax_in_ptr(0x0, test, (void *) replace_pointers, st_st_target, scratch);
+        // machine_rax(32, test, scratch);
+        // machine_ptr_in_rax(0x0, test, (void *) replace_pointers, st_st_target, scratch);
+    }
 
-    // machine_push_rax(test, scratch);
-    machine_rax_in_ptr(0x0, test, replace_pointers, st_st_target, scratch);
+    {
+        // mmap, put ptr in memory, unmap it, put it back into rax and return
 
-    machine_munmap(test, scratch);
-    machine_esi(32, test, scratch);
-    machine_ptr_in_rax(0x0, test, replace_pointers, st_st_target, scratch);
-    // machine_pop_rax(test, scratch);
-    machine_rax_in_rdi(test, scratch);
+        // machine_mmap(test, scratch);
+        // machine_esi(32, test, scratch);
+        // machine_syscall(test, scratch);
 
-    // Uncomment to unmap the allocated memory and therefore causing a segfault when `*rax_value = 2;` is ran.
-    // machine_syscall(test, scratch);
+        // // machine_push_rax(test, scratch);
+        // machine_rax_in_ptr(0x0, test, replace_pointers, scratch);
+
+        // machine_munmap(test, scratch);
+        // machine_esi(32, test, scratch);
+        // machine_ptr_in_rax(0x0, test, replace_pointers, scratch);
+        // // machine_pop_rax(test, scratch);
+        // machine_rax_in_rdi(test, scratch);
+
+        // Uncomment to unmap the allocated memory and therefore causing a segfault when
+        // `*rax_value = 2;` is ran. machine_syscall(test, scratch);
+    }
+
+    {
+        // while true loop, hopefully...
+
+        machine_jmp0(test->size, test, replace_pointers, scratch);
+    }
 
     machine_ret(test, scratch);
 
     var function_pointer = get_exec(test->array, func_start, test->size);
 
-    replace_bytecode_pointers((byte *) function_pointer, func_start, replace_pointers);
+    replace_bytecode_pointers(
+        (byte *) function_pointer, func_start, st_st_target, replace_pointers);
 
     print_bytecode(test->size, test->array);
     printf("\n");
 
     function_pointer();
     int *rax_value = (int *) get_rax_value();
-    int rdi_value = get_rdi_value();
+    int  rdi_value = get_rdi_value();
 
     // print_bytecode(test->size, test->array);
     print_bytecode(test->size, &((byte *) function_pointer)[ -func_start ]);
@@ -2410,9 +2495,9 @@ int main(int argc, char **argv) {
 
     printf("\nRAX: %p\n", rax_value);
 
-    *rax_value = 2;
+    // *rax_value = 2;
 
-    printf("[RAX]: %i\n", *rax_value);
+    // printf("[RAX]: %i\n", *rax_value);
 
     // release();
 }

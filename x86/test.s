@@ -21,11 +21,11 @@ bits 64
 
 _start:
     ; move 64-bit value into register
-    mov rax, 0x1122334455667788
-    mov [rbx], rax
-    mov rax, [rbx]
-    syscall
+    mov rbx, 0x1122334455667788
+    mov rcx, 0x8877665544332211
+    cmp rax, 0
+    cmove rbx, rcx
+    jmp rbx
     ; ret
 
-    mov rbx, rax
-    sys(cexit)
+    exit(0)
