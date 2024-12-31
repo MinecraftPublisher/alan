@@ -2150,8 +2150,10 @@ fn(void, machine_r9d, i64 value, bytecode target) {
     machine_emit_dword(value, target, mem);
 }
 
+// TO BE IMPROVED: Make this calculate offsets ffs!
 fn(void, machine_jmp0, i64 where, bytecode target, indexes replace_pointers) {
     // RBX contains the actual jump location, whilst RCX contains the address right after the JMP.
+    // cmove moves rcx into rbx when rax is zero.
 
     var rbx_place = target->size + 2;
     machine_rbx(0, target, mem);
@@ -2171,6 +2173,7 @@ fn(void, machine_jmp0, i64 where, bytecode target, indexes replace_pointers) {
     push(target, 0x45, mem);
     push(target, 0xd9, mem);
 
+    // jmp rbx
     push(target, 0xff, mem);
     push(target, 0xe3, mem);
 
@@ -2196,7 +2199,7 @@ fn(void, machine_jmpn0, i64 where, bytecode target, indexes replace_pointers) {
     push(target, 0xf8, mem);
     push(target, 0x00, mem);
 
-    // cmovne rcx, rbx
+    // cmove rcx, rbx
     push(target, 0x48, mem);
     push(target, 0x0f, mem);
     push(target, 0x44, mem);
@@ -2481,15 +2484,17 @@ int main(int argc, char **argv) {
     replace_bytecode_pointers(
         (byte *) function_pointer, func_start, st_st_target, replace_pointers);
 
-    print_bytecode(test->size, test->array);
+    // print_bytecode(test->size, test->array);
+    // printf("\n");
+
+    print_bytecode(test->size, &((byte *) function_pointer)[ -func_start ]);
     printf("\n");
 
     function_pointer();
     int *rax_value = (int *) get_rax_value();
     int  rdi_value = get_rdi_value();
 
-    // print_bytecode(test->size, test->array);
-    print_bytecode(test->size, &((byte *) function_pointer)[ -func_start ]);
+    print_bytecode(test->size, test->array);
 
     printf("function signature: %p - %i\n", function_pointer, rdi_value);
 
