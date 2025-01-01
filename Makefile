@@ -1,24 +1,33 @@
-all: clean build measure
+all: clean build count measure
 
 FILE = tests/hello_world.al
+MAIN_SRC = src/alan.c
+OUTPUT_FOLDER = out/
+OUTPUT_FILE = alan
 
 clean:
-	rm -rf out/
-	mkdir out
+	rm -rf $(OUTPUT_FOLDER)
+	mkdir $(OUTPUT_FOLDER)
 
 build:
-	clang alan.c -o out/alc
+	clang $(MAIN_SRC) -o $(OUTPUT_FOLDER)$(OUTPUT_FILE)
 
 run:
-	@echo out/alc $(FILE)
+	@echo $(OUTPUT_FOLDER)$(OUTPUT_FILE) $(FILE)
 	@echo
-	@out/alc $(FILE)
+	@$(OUTPUT_FOLDER)$(OUTPUT_FILE) $(FILE)
 
 measure:
-	@echo time out/alc $(FILE)
+	@echo time $(OUTPUT_FOLDER)$(OUTPUT_FILE) $(FILE)
 	@echo
-	@fish -c "time out/alc $(FILE)"
+	@fish -c "time $(OUTPUT_FOLDER)$(OUTPUT_FILE) $(FILE)"
 
 debug:
-	clang -rdynamic -fno-omit-frame-pointer -g alan.c -o out/alc
-	lldb out/alc $(FILE) -o run
+	clang -rdynamic -fno-omit-frame-pointer -g $(MAIN_SRC) -o $(OUTPUT_FOLDER)$(OUTPUT_FILE)
+	lldb $(OUTPUT_FOLDER)$(OUTPUT_FILE) $(FILE) -o run
+
+count:
+	@echo
+	echo Lines - Characters - Name
+	find src -name '*.h' -o -name '*.c' | xargs wc -lc
+	@echo
