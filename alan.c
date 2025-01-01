@@ -2089,8 +2089,8 @@ fn(void, machine_rax_in_ptr, i64 ptr, bytecode target, indexes replace_pointers)
     struct Pointer our_index = { .put_in = target->size + 2, .value = ptr * 8 };
     machine_put_pointer(our_index, target, replace_pointers, mem);
     push(target, 0x48, mem);
-    push(target, 0x8b, mem);
-    push(target, 0x00, mem);
+    push(target, 0x89, mem);
+    push(target, 0x03, mem);
 }
 
 fn(void, machine_ptr_in_rax, i64 ptr, bytecode target, indexes replace_pointers) {
@@ -2098,8 +2098,25 @@ fn(void, machine_ptr_in_rax, i64 ptr, bytecode target, indexes replace_pointers)
     push(replace_pointers, our_index, mem);
     machine_rax(0x0, target, mem);
     push(target, 0x48, mem);
+    push(target, 0x8b, mem);
+    push(target, 0x00, mem);
+}
+
+fn(void, machine_rdi_in_ptr, i64 ptr, bytecode target, indexes replace_pointers) {
+    struct Pointer our_index = { .put_in = target->size + 2, .value = ptr * 8 };
+    machine_put_pointer(our_index, target, replace_pointers, mem);
+    push(target, 0x48, mem);
     push(target, 0x89, mem);
-    push(target, 0x03, mem);
+    push(target, 0x3b, mem);
+}
+
+fn(void, machine_ptr_in_rdi, i64 ptr, bytecode target, indexes replace_pointers) {
+    struct Pointer our_index = { .put_in = target->size + 2, .value = ptr * 8 };
+    push(replace_pointers, our_index, mem);
+    machine_rdi(0x0, target, mem);
+    push(target, 0x48, mem);
+    push(target, 0x8b, mem);
+    push(target, 0x3f, mem);
 }
 
 fn(void, machine_syscall, bytecode target) {
@@ -2242,7 +2259,7 @@ fn(void, machine_rax_in_rdi, bytecode target) {
 }
 
 fn(void, machine_munmap, bytecode target) {
-    machine_eax(11, target, mem);
+    machine_rax(11, target, mem);
     // machine_esi(size, target, mem);
 }
 
@@ -2377,11 +2394,19 @@ i64 get_rax_value() {
 }
 
 i64 get_rdi_value() {
-    i64 rax_value;
+    i64 rdi_value;
 
-    __asm__("mov %%rdi, %0" : "=r"(rax_value) : : "%rax");
+    __asm__("mov %%rdi, %0" : "=r"(rdi_value) : : "%rax");
 
-    return rax_value;
+    return rdi_value;
+}
+
+i64 get_rdx_value() {
+    i64 rdx_value;
+
+    __asm__("mov %%rdx, %0" : "=r"(rdx_value) : : "%rax");
+
+    return rdx_value;
 }
 
 fn(void, insert_ptr_space, IR ir, bytecode target) {
@@ -2454,55 +2479,62 @@ int main(int argc, char **argv) {
     {
         // mmap, put ptr in memory, unmap it, put it back into rax and return
 
-        // machine_mmap(test, scratch);
-        // machine_esi(32, test, scratch);
-        // machine_syscall(test, scratch);
+        machine_mmap(test, scratch);
+        machine_esi(32, test, scratch);
+        machine_syscall(test, scratch);
 
-        // // machine_push_rax(test, scratch);
-        // machine_rax_in_ptr(0x0, test, replace_pointers, scratch);
+        // machine_push_rax(test, scratch);
+        machine_rax_in_ptr(0x0, test, replace_pointers, scratch);
 
-        // machine_munmap(test, scratch);
-        // machine_esi(32, test, scratch);
-        // machine_ptr_in_rax(0x0, test, replace_pointers, scratch);
-        // // machine_pop_rax(test, scratch);
+        machine_rsi(32, test, scratch);
+        machine_ptr_in_rdi(0x0, test, replace_pointers, scratch);
+        // machine_pop_rax(test, scratch);
         // machine_rax_in_rdi(test, scratch);
+        machine_munmap(test, scratch);
 
         // Uncomment to unmap the allocated memory and therefore causing a segfault when
-        // `*rax_value = 2;` is ran. machine_syscall(test, scratch);
+        // `*rax_value = 2;` is ran.
+        machine_syscall(test, scratch);
+        machine_ptr_in_rdi(0x0, test, replace_pointers, scratch);
     }
 
     {
         // while true loop, hopefully...
 
-        machine_jmp0(test->size, test, replace_pointers, scratch);
+        // machine_jmp0(test->size, test, replace_pointers, scratch);
     }
 
     machine_ret(test, scratch);
+
 
     var function_pointer = get_exec(test->array, func_start, test->size);
 
     replace_bytecode_pointers(
         (byte *) function_pointer, func_start, st_st_target, replace_pointers);
+    
+    var fd = fopen("test.bin", "w");
+    fwrite(function_pointer, test->size - func_start, 1, fd);
+    fclose(fd);
 
     // print_bytecode(test->size, test->array);
     // printf("\n");
 
-    print_bytecode(test->size, &((byte *) function_pointer)[ -func_start ]);
+    print_bytecode(test->size, test->array);
     printf("\n");
 
     function_pointer();
     int *rax_value = (int *) get_rax_value();
-    int  rdi_value = get_rdi_value();
+    int  *rdi_value = (int*)get_rdi_value();
 
-    print_bytecode(test->size, test->array);
+    print_bytecode(test->size, &((byte *) function_pointer)[ -func_start ]);
 
-    printf("function signature: %p - %i\n", function_pointer, rdi_value);
+    printf("function signature: %p - %li\n", function_pointer, (i64)rdi_value);
 
-    printf("\nRAX: %p\n", rax_value);
+    printf("\nRAX: %p\n", rdi_value);
 
-    // *rax_value = 2;
+    *rdi_value = 2;
 
-    // printf("[RAX]: %i\n", *rax_value);
+    printf("[RAX]: %i\n", *rdi_value);
 
     // release();
 }
