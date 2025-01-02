@@ -18,7 +18,7 @@
 #include "crew/tourist.c"
 
 // ======== Scribes (codegen backends) ========
-#include "scribes/x86_64_linux.c"
+#include "scribes/all_scribes.c"
 
 // ======== Setup functions ========
 
@@ -106,14 +106,15 @@ int main(int argc, char **argv) {
     }
 
     printf("\n\n");
-
     tourist(ir, con, scratch);
-
     printf("\n");
 
     // x86 test
 
-    test_scribe(ir);
+    var current = get_scribe_x86_64_linux();
+    var scribe_env = current.create_env(ir, scratch);
+
+    current.tests(ir, scribe_env, scratch);
 
     // release();
 }

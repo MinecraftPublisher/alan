@@ -21,9 +21,7 @@ bits 64
 
 _start:
     ; move 64-bit value into register
-    mov rdi, 0x1122334455667788
-    mov rdi, [rdi]
-    mov [rbx], rdi
+    cmp rdi, 0
     ; ret
 
     exit(0)

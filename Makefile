@@ -28,6 +28,9 @@ debug:
 
 count:
 	@echo
-	echo Lines - Characters - Name
-	find src -name '*.h' -o -name '*.c' | xargs wc -lc
+	@echo "echo lines chars name"
+	@echo "find src -name '*.h' -o -name '*.c' | xargs wc -lc"
+	@echo
+	@echo lines chars name
+	@find src -name '*.h' -o -name '*.c' | xargs wc -lc
 	@echo

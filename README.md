@@ -91,7 +91,6 @@ fn void fizzbuzz [
     num i 1;
 
     while [ sub count i ] [
-
         num mod_3 [ mod i 3 ];
         num mod_5 [ mod i 5 ];
         num and_val [ and mod_3 mod_5 ];
