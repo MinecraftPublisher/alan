@@ -278,7 +278,7 @@ fn(i, parse_block, ctx con) {
     i val = ret(struct i);
 
     val->type        = tcode;
-    val->value.block = (void *) ret(i, 0);
+    val->value.block.items = (void *) ret(i, 0);
 
     byte start        = 1;
     byte removed_semi = 0;
@@ -298,7 +298,7 @@ fn(i, parse_block, ctx con) {
         removed_semi = 0;
 
         var ex = parse_call(con, mem);
-        if (ex != null) push(val->value.block, ex, mem);
+        if (ex != null) push(val->value.block.items, ex, mem);
         else if (cur() != ']') { error(con, "Expected expression inside block..."); }
 
         parse_null(con);
@@ -314,7 +314,7 @@ fn(i, parse_block, ctx con) {
 
     skip();
 
-    if (val->value.block->size == 0) error(con, "Empty blocks are not supported!");
+    if (val->value.block.items->size == 0) error(con, "Empty blocks are not supported!");
 
     return val;
 }
@@ -339,7 +339,11 @@ fn(i, parse_fn, ctx con) {
     }
     parse_null(con);
 
+    var prev_size = con->symbols->size;
     var fn_name = parse_ref_str(con, mem);
+    if(con->symbols->size == prev_size) {
+        error(con, "Duplicate function name!");
+    }
     if (fn_name == -1) error(con, "Expected function name when parsing function...");
     if (fn_name == NUM_TYPE || fn_name == LIST_TYPE || fn_name == VOID_TYPE)
         error(con, "Function name cannot be reserved words 'num', 'list', 'void'!");
@@ -370,8 +374,8 @@ fn(i, parse_fn, ctx con) {
     val->value.fn.args = (void *) ret(symbol, 0);
     var my_types       = ret(char, 0);
 
-    for (i32 i = 0; i < code->value.block->size; i++) {
-        var current = code->value.block->array[ i ];
+    for (i32 i = 0; i < code->value.block.items->size; i++) {
+        var current = code->value.block.items->array[ i ];
         if (current->type == tcall && current->value.call.name == ARG_TYPE) {
             var args = current->value.call.args;
 
@@ -401,7 +405,7 @@ fn(i, parse_fn, ctx con) {
             }
 
             // WARN: Block values may be null!
-            // code->value.block->array[ i ] = null;
+            // code->value.block.array[ i ] = null;
         }
     }
 

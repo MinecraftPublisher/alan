@@ -1,9 +1,9 @@
 #pragma once
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <stdlib.h>
 
 //
 
@@ -25,7 +25,13 @@ void arena_free(Arena *arena) {
     }
 }
 
-void *alloc(Arena *arena, i32 size) {
+#define halign(x) printf("\e[%iG",x)
+
+#define alloc(arena, size) __alloc(arena, size, (char*)__FUNCTION__, __FILE__, __LINE__)
+void *__alloc(Arena *arena, i32 size, char* function, char *filename, int line) {
+    adeb(printf(red("Location: %s() %s line %i    "), function, filename, line));
+    adeb(halign(64));
+    
     if (!arena->initialized) {
         arena->initialized = 1;
         arena->blocks      = mmap(
@@ -44,7 +50,7 @@ void *alloc(Arena *arena, i32 size) {
         if (block->size - block->used >= size) {
             void *ptr = &block->data[ block->used ];
             block->used += size;
-            adeb(printf("Alloc(%p, %li, %p)\n", arena, size, ptr));
+            adeb(printf(green("Alloc(%p, %i, %p)") "\n", arena, size, ptr));
             return ptr;
         }
     }
@@ -80,6 +86,6 @@ void *alloc(Arena *arena, i32 size) {
 
     arena->blocks->array[ arena->blocks->size - 1 ] = new_block;
 
-    adeb(printf("Block.New(%p, %li, %p)\n", arena, size, new_block.data));
+    adeb(printf(yellow("Block.New(%p, %i, %p)") "\n", arena, size, new_block.data));
     return new_block.data;
 }

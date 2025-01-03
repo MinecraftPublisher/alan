@@ -5,14 +5,17 @@
 
 //
 
+#include "macros.h"
 #include "types.h"
+
+// TODO: Colorize this function
 
 void print_i(i val, i32 indent, ctx con, byte print_sym) {
     if (val == null) printf("\r");
 
     else if (val->type == tref) {
-        if (print_sym) printf("<$%i>", val->value.ref);
-        else { printf("%s", con->symbols->array[ labs(val->value.ref) ]); }
+        if (print_sym) printf(red("<") green("$%i") red(">"), val->value.ref);
+        else { printf(green("%s"), con->symbols->array[ labs(val->value.ref) ]); }
     }
 
     else if (val->type == tchr) {
@@ -20,20 +23,20 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
     }
 
     else if (val->type == tstr) {
-        if (print_sym) printf("<\"%i>", val->value.str_id);
-        else { printf("\"%s\"", con->literals->array[ val->value.str_id ].value.str.array); }
+        if (print_sym) printf(red("<") green("\"%i") red(">"), val->value.str_id);
+        else { printf(blue("\"%s\""), con->literals->array[ val->value.str_id ].value.str.array); }
     }
 
     else if (val->type == tnum) {
-        if (print_sym) printf("<#%i>", val->value.str_id);
-        else { printf("%i", con->literals->array[ val->value.str_id ].value.num); }
+        if (print_sym) printf(red("<") green("#%i") red(">"), val->value.str_id);
+        else { printf(yellow("%i"), con->literals->array[ val->value.str_id ].value.num); }
     }
 
     else if (val->type == tfn) {
         if (print_sym) printf("\nfn[%i] <$%i>(", val->value.fn.type, val->value.fn.name);
         else {
             printf(
-                "fn[%s] %s (",
+                cyan("fn") "[" red("%s") "] "yellow("%s")" (",
                 val->value.fn.type == exp_num    ? "num"
                 : val->value.fn.type == exp_list ? "list"
                                                  : "void",
@@ -53,7 +56,7 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
     else if (val->type == tcall) {
         if (print_sym) printf("<$%i>", val->value.call.name);
         else
-            printf("%s", con->symbols->array[ val->value.call.name ]);
+            printf(cyan("%s"), con->symbols->array[ val->value.call.name ]);
         for (i32 i = 0; i < val->value.call.args->size; i++) {
             printf(" ");
             print_i(val->value.call.args->array[ i ], indent, con, print_sym);
@@ -63,19 +66,19 @@ void print_i(i val, i32 indent, ctx con, byte print_sym) {
 
     else if (val->type == tcode) {
         printf("[ ");
-        if (val->value.block->size > 1) printf("\n");
-        for (i32 i = 0; i < val->value.block->size; i++) {
-            if (val->value.block->array[ i ] == null) continue;
+        if (val->value.block.items->size > 1) printf("\n");
+        for (i32 i = 0; i < val->value.block.items->size; i++) {
+            if (val->value.block.items->array[ i ] == null) continue;
 
-            if (val->value.block->size > 1) {
+            if (val->value.block.items->size > 1) {
                 for (i32 sp = 0; sp <= indent; sp++) printf("    ");
             }
 
-            print_i(val->value.block->array[ i ], indent + 1, con, print_sym);
-            if (i + 1 < val->value.block->size && val->value.block->size > 1) printf("\n");
+            print_i(val->value.block.items->array[ i ], indent + 1, con, print_sym);
+            if (i + 1 < val->value.block.items->size && val->value.block.items->size > 1) printf("\n");
         }
 
-        if (val->value.block->size > 1) {
+        if (val->value.block.items->size > 1) {
             printf("\n");
             for (i32 sp = 0; sp < indent; sp++) printf("    ");
         } else {

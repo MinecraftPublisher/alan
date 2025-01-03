@@ -6,6 +6,34 @@
 
 #include "template.c"
 
+typedef A(byte) * bytecode;
+
+struct Pointer {
+    i64 value;
+    i64 put_in;
+};
+typedef A(struct Pointer) * indexes;
+
+typedef struct {
+    unsigned char e_ident[ EI_NIDENT ]; // ELF identification
+    uint16_t      e_type;               // Object file type
+    uint16_t      e_machine;            // Machine type
+    uint32_t      e_version;            // Object file version
+    uint64_t      e_entry;              // Entry point address
+    uint64_t      e_phoff;              // Program header offset
+    uint64_t      e_shoff;              // Section header offset
+    uint32_t      e_flags;              // Processor-specific flags
+    uint16_t      e_ehsize;             // ELF header size
+    uint16_t      e_phentsize;          // Size of program header entry
+    uint16_t      e_phnum;              // Number of program header entries
+    uint16_t      e_shentsize;          // Size of section header entry
+    uint16_t      e_shnum;              // Number of section header entries
+    uint16_t      e_shstrndx;           // Section header string table index
+} Elf64_Ehdr;
+
+void                     __dummy() {}
+typedef typeof(__dummy) *mc;
+
 /*
  * Scribe functionality checklist! (x86_64_linux)
  * [x] useless
@@ -14,14 +42,14 @@
  * [x] push_from_tmp
  * [ ] call
  * [ ] ret
- * [ ] jmp0
- * [ ] jmpn0
- * [ ] const_to_tmp
- * [ ] addr_deref_to_tmp
- * [ ] addr_no_deref_to_tmp
- * [ ] addr_set_addr_to_tmp
+ * [x] jmp0
+ * [x] jmpn0
+ * [x] const_to_tmp
+ * [x] addr_deref_to_tmp
+ * [x] addr_no_deref_to_tmp
+ * [x] addr_set_addr_to_tmp
  * [ ] create_block
- * [ ] run_tests
+ * [x] run_tests
  * [x] create_env
  */
 
@@ -234,6 +262,18 @@ fn(void, __x86_64_linux_machine_jmp0, i64 where, bytecode target, indexes replac
     push(replace_pointers, rbx_dex, mem);
 }
 
+fn(void, __x86_64_linux_machine_call, i64 where, bytecode target, indexes replace_pointers) {
+    var rbx_place = target->size + 2;
+    __x86_64_linux_machine_rbx(0, target, mem);
+
+    // call rbx
+    push(target, 0xff, mem);
+    push(target, 0xd3, mem);
+
+    struct Pointer rbx_dex = { .put_in = rbx_place, .value = where };
+    push(replace_pointers, rbx_dex, mem);
+}
+
 fn(void, __x86_64_linux_machine_jmpn0, i64 where, bytecode target, indexes replace_pointers) {
     // RBX contains the actual jump location, whilst RCX contains the address right after the JMP.
 
@@ -289,6 +329,12 @@ fn(void, __x86_64_linux_machine_rax_in_rdi, bytecode target) {
     push(target, 0x48, mem);
     push(target, 0x89, mem);
     push(target, 0xc7, mem);
+}
+
+fn(void, __x86_64_linux_machine_rdi_in_rsi, bytecode target) {
+    push(target, 0x48, mem);
+    push(target, 0x89, mem);
+    push(target, 0xfe, mem);
 }
 
 fn(void, __x86_64_linux_machine_munmap, bytecode target) {
@@ -399,82 +445,316 @@ i64 __x86_64_linux_get_rdx_value() {
 }
 
 fn(void, __x86_64_linux_insert_ptr_space, IR ir, bytecode target) {
-    for (i32 i = 0; i < ir.compiler_data->reserves->size; i++) { extend((void *) target, 8, mem); }
+    for (i32 i = 0; i < ir.compiler_data.reserves->size; i++) { extend((void *) target, 8, mem); }
 }
 
 void __x86_64_linux_replace_bytecode_pointers(
-    byte *target, i64 function_offset, i64 st_st_target, indexes pointers) {
+    byte *target, i64 function_offset, i64 st_st_target, indexes pointers, byte symbolic) {
     var destination = &target[ -function_offset ];
     for (i64 i = 0; i < pointers->size; i++) {
         var addr = (i64 *) (&destination[ pointers->array[ i ].put_in ]);
-        *addr    = (i64) destination + pointers->array[ i ].value + st_st_target;
+        // ADD `destination + ` BACK IN
+        *addr = (i64) (symbolic ? 0 : destination) + pointers->array[ i ].value + st_st_target;
     }
 }
 
+struct block_loc {
+    i64 alan_name;
+    i64 actual_address;
+};
+
 typedef struct x86_64_linux_env {
-    A(i64) * block_locations;
+    A(struct block_loc) * block_locations;
+    indexes  replace_pointers;
     bytecode target;
+    IR       ir;
+
+    i64 st_st_target;
+    i64 func_start;
+    i64 put_main;
+
+    i64 main_segment; // SET AFTER INIT
+    i64 allocator;    // SET AFTER INIT
+
+    i64 stack_diff;
 } *x86_64_linux_env;
 
 fn(void, x86_64_linux_useless, void *_environment) {
+    sdebug(useless);
     // nothing to do.
 }
 
-fn(void, x86_64_linux_test_scribe, IR ir, void *_environment) {
+const var JMP_SIZE = 8 /* qword */ + 2 /* mov rbx, value */ + 2 /* jmp rbx */;
+
+fn(void *, x86_64_linux_create_env, IR ir) {
+    sdebug(run create env);
+    var env               = ret(struct x86_64_linux_env);
+    env->block_locations  = (void *) ret(struct block_loc, 0);
+    env->target           = (bytecode) ret(char, 0);
+    env->replace_pointers = (indexes) ret(struct Pointer, 0);
+
+    env->st_st_target = env->target->size;
+    __x86_64_linux_insert_ptr_space(ir, env->target, mem);
+
+    env->func_start = env->target->size;
+
+    env->allocator = 0;
+
+    env->put_main = env->target->size + 2;
+    __x86_64_linux_machine_rbx(0, env->target, mem);
+
+    // jmp rbx (main segment)
+    push(env->target, 0xff, mem);
+    push(env->target, 0xe3, mem);
+
+    return env;
+}
+
+fn(void, x86_64_linux_pop_to_tmp, void *_environment) {
+    sdebug(pop tmp);
     var environment = (x86_64_linux_env) _environment;
-    var target = environment->target;
-    ground();
+    environment->stack_diff--;
+    __x86_64_linux_machine_pop_rdi(environment->target, mem);
+}
 
-    var replace_pointers = (indexes) new (struct Pointer, 0);
+fn(void, x86_64_linux_push_from_tmp, void *_environment) {
+    sdebug(push tmp);
+    var environment = (x86_64_linux_env) _environment;
+    environment->stack_diff++;
+    __x86_64_linux_machine_push_rdi(environment->target, mem);
+}
 
-    // Used for separating preprocessing values
-    var st_st_target = target->size;
-    __x86_64_linux_insert_ptr_space(ir, target, scratch);
+fn(void, x86_64_linux_ret, void *_environment) {
+    sdebug(ret);
+    var environment = (x86_64_linux_env) _environment;
+    // TODO: Add memory cleanup and persistence after I implement the memory safety
+    // Mechanism:
+    // 1. Get the parent block that's being returned from the allocator
+    // 2. Remove it from the current allocator arena and hand it over to the arena that's on top of
+    // us
+    // 3. Return the address we need in it
+    // This is faster and more efficient than cloning the entire array in the top arena
+    __x86_64_linux_machine_ret(environment->target, mem);
+}
 
-    var func_start = target->size;
+fn(void, x86_64_linux_dryback, void *_environment) {
+    sdebug(dryback);
+    var environment = (x86_64_linux_env) _environment;
+    __x86_64_linux_machine_ret(environment->target, mem);
+}
 
-    {
-        // put rax in pointer, put 32 in rax and restore rax from pointer
+fn(void, x86_64_linux_const_to_tmp, i64 value, void *_environment) {
+    sdebug(const);
+    var environment = (x86_64_linux_env) _environment;
+    __x86_64_linux_machine_rdi(value, environment->target, mem);
+}
 
-        // machine_rax_in_ptr(0x0, target, (void *) replace_pointers, st_st_target, scratch);
-        // machine_rax(32, target, scratch);
-        // machine_ptr_in_rax(0x0, target, (void *) replace_pointers, st_st_target, scratch);
+fn(void, x86_64_linux_jmp0, i64 where, void *_environment) {
+    sdebug(jmp zero);
+    var environment = (x86_64_linux_env) _environment;
+
+    for (i64 i = 0; i < environment->block_locations->size; i++) {
+        var cur = environment->block_locations->array[ i ];
+
+        if (cur.alan_name == where) {
+            __x86_64_linux_machine_jmp0(
+                cur.actual_address, environment->target, environment->replace_pointers, mem);
+            return;
+        }
     }
 
-    {
-        // mmap, put ptr in memory, unmap it, put it back into rax and return
+    error(
+        scribe_error,
+        "I (x86_64_linux) was not able to find the referenced block symbol for jmp0. "
+        "This should not be happening!");
+}
 
-        __x86_64_linux_machine_mmap(target, scratch);
-        __x86_64_linux_machine_esi(32, target, scratch);
-        __x86_64_linux_machine_syscall(target, scratch);
+fn(void, x86_64_linux_jmpn0, i64 where, void *_environment) {
+    sdebug(jmp not zero);
+    var environment = (x86_64_linux_env) _environment;
 
-        // machine_push_rax(target, scratch);
-        __x86_64_linux_machine_rax_in_ptr(0x0, target, replace_pointers, scratch);
+    for (i64 i = 0; i < environment->block_locations->size; i++) {
+        var cur = environment->block_locations->array[ i ];
 
-        __x86_64_linux_machine_rsi(32, target, scratch);
-        __x86_64_linux_machine_ptr_in_rdi(0x0, target, replace_pointers, scratch);
-        // machine_pop_rax(target, scratch);
-        // machine_rax_in_rdi(target, scratch);
-        __x86_64_linux_machine_munmap(target, scratch);
-
-        // Uncomment to unmap the allocated memory and therefore causing a segfault when
-        // `*rax_value = 2;` is ran.
-        __x86_64_linux_machine_syscall(target, scratch);
-        __x86_64_linux_machine_ptr_in_rdi(0x0, target, replace_pointers, scratch);
+        if (cur.alan_name == where) {
+            __x86_64_linux_machine_jmpn0(
+                cur.actual_address, environment->target, environment->replace_pointers, mem);
+            return;
+        }
     }
 
-    {
-        // while true loop, hopefully...
+    error(
+        scribe_error,
+        "I (x86_64_linux) was not able to find the referenced block symbol for jmpn0. "
+        "This should not be happening!");
+}
 
-        // machine_jmp0(target->size, target, replace_pointers, scratch);
+fn(void, x86_64_linux_addr_deref_to_tmp, i64 addr, void *_environment) {
+    sdebug(deref address);
+    var environment = (x86_64_linux_env) _environment;
+    __x86_64_linux_machine_ptr_in_rdi(
+        addr, environment->target, environment->replace_pointers, mem);
+}
+
+fn(void, x86_64_linux_addr_set_addr_to_tmp, i64 addr, void *_environment) {
+    sdebug(set address);
+    var environment = (x86_64_linux_env) _environment;
+    __x86_64_linux_machine_rdi_in_ptr(
+        addr, environment->target, environment->replace_pointers, mem);
+}
+
+fn(void, x86_64_linux_create_block, i64 name, IR ir, void *_environment) {
+    sdebug(create block);
+    var environment      = (x86_64_linux_env) _environment;
+    var target           = environment->target;
+    var replace_pointers = environment->replace_pointers;
+
+    if (environment->block_locations->size > 0) __x86_64_linux_machine_ret(target, mem);
+
+    var location = (struct block_loc) { .actual_address = target->size, .alan_name = name };
+    push(environment->block_locations, location, mem);
+
+    // for (i64 i = 0; i < environment->block_locations->size; i++) {
+    //     printf(
+    //         "[CHECK] NAME %li PLACE %li\n",
+    //         environment->block_locations->array[ i ].alan_name,
+    //         environment->block_locations->array[ i ].actual_address);
+    // }
+
+    var string_name
+        = ir.segments->array[ name ].name < 0
+              ? "block"
+              : ir.compiler_data.context->symbols->array[ ir.segments->array[ name ].name ];
+
+    if (environment->allocator < 0) { environment->allocator = -environment->allocator; }
+
+    if (strcmp(string_name, "alloc") == 0) { environment->allocator = -target->size; }
+
+    if (ir.segments->array[ name ].name == 1) {
+        var cur                   = target->size;
+        environment->main_segment = cur;
+        // var ptr                   = &environment->target->array[ environment->put_main ];
+        // ptr[ 0 ]                  = cur & 0xff;
+        // ptr[ 1 ]                  = (cur >> 8) & 0xff;
+        // ptr[ 2 ]                  = (cur >> 16) & 0xff;
+        // ptr[ 3 ]                  = (cur >> 24) & 0xff;
+        // ptr[ 4 ]                  = (cur >> 32) & 0xff;
+        // ptr[ 5 ]                  = (cur >> 40) & 0xff;
+        // ptr[ 6 ]                  = (cur >> 48) & 0xff;
+        // ptr[ 7 ]                  = (cur >> 56) & 0xff;
+
+        struct Pointer rbx_dex = { .put_in = environment->put_main, .value = cur - 1 };
+        push(replace_pointers, rbx_dex, mem);
     }
+}
 
-    __x86_64_linux_machine_ret(target, scratch);
+// This one's hard to pull off. Really hard.
+fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
+    sdebug(call func);
+    var environment      = (x86_64_linux_env) _environment;
+    var target           = environment->target;
+    var replace_pointers = environment->replace_pointers;
 
-    var function_pointer = __x86_64_linux_get_exec(target->array, func_start, target->size);
+    var my_name = ir.segments->array[ name ].name;
+
+    var string_name = my_name < 0 ? "block" : ir.compiler_data.context->symbols->array[ my_name ];
+
+    if (strcmp(string_name, "mmap") == 0) {
+        __x86_64_linux_machine_pop_rdi(target, mem);
+        __x86_64_linux_machine_rdi_in_rsi(target, mem);
+
+        __x86_64_linux_machine_mmap(target, mem);
+        __x86_64_linux_machine_syscall(target, mem);
+    } else if (strcmp(string_name, "munmap") == 0) {
+        __x86_64_linux_machine_pop_rdi(target, mem);
+        __x86_64_linux_machine_rdi_in_rsi(target, mem);
+        __x86_64_linux_machine_munmap(target, mem);
+        __x86_64_linux_machine_syscall(target, mem);
+    } else if (environment->allocator <= 0) {
+        var loc = -1;
+        for (i64 i = 0; i < environment->block_locations->size; i++) {
+            var block = environment->block_locations->array[ i ];
+            if (block.alan_name != name) continue;
+            loc = block.actual_address;
+            break;
+        }
+
+        if (loc == -1) {
+            printf("Name: %lX\n", name);
+            error(
+                scribe_error,
+                "I (x86_64_linux) was not able to find the given call destination."
+                "This should not be happening!");
+        }
+
+        __x86_64_linux_machine_call(loc, target, replace_pointers, mem);
+    }
+}
+
+#define awk_patch "awk '{if ($1 ~ /^[0-9a-fA-F]{8}$/) {print \"/*\" $1 \"*/ \" substr($0, 29)}}'"
+
+fn(void, x86_64_linux_finish, void *_environment) {
+    sdebug(fin.);
+    var environment      = (x86_64_linux_env) _environment;
+    var target           = environment->target;
+    var replace_pointers = environment->replace_pointers;
+
+    __x86_64_linux_machine_ret(target, mem);
+
+    var function_pointer
+        = __x86_64_linux_get_exec(target->array, environment->func_start, target->size);
 
     __x86_64_linux_replace_bytecode_pointers(
-        (byte *) function_pointer, func_start, st_st_target, replace_pointers);
+        (byte *) function_pointer,
+        environment->func_start,
+        environment->st_st_target,
+        replace_pointers,
+        1);
+
+    var fd = fopen("out/x86_64_linux_dump_symbolic.bin", "w");
+    fwrite(function_pointer, target->size - environment->func_start, 1, fd);
+    fclose(fd);
+
+    __x86_64_linux_replace_bytecode_pointers(
+        (byte *) function_pointer,
+        environment->func_start,
+        environment->st_st_target,
+        replace_pointers,
+        0);
+
+    // -- Uncomment these to write the x86 output to a file allowing for easier debugging --
+    fd = fopen("out/x86_64_linux_dump.bin", "w");
+    fwrite(function_pointer, target->size - environment->func_start, 1, fd);
+    fclose(fd);
+
+    __x86_64_linux_print_bytecode(target->size, target->array);
+    printf("\n");
+    __x86_64_linux_print_bytecode(target->size - environment->func_start, (void*)function_pointer);
+    printf("\n");
+
+    system("ndisasm -b 64 out/x86_64_linux_dump_symbolic.bin | " awk_patch);
+    // system("ndisasm -b 64 out/x86_64_linux_dump_symbolic.bin | " awk_patch);
+    system("ndisasm -b 64 out/x86_64_linux_dump.bin | " awk_patch " > out/x86_64_linux_dump.asm");
+    system("ndisasm -b 64 out/x86_64_linux_dump_symbolic.bin | " awk_patch
+           " > out/x86_64_linux_dump_symbolic.asm");
+
+    printf("PLACE: %p\n", function_pointer);
+    function_pointer();
+    var rax = (byte*)__x86_64_linux_get_rdi_value();
+    __x86_64_linux_print_bytecode(target->size, target->array);
+    printf("RDI %p\n", rax);
+    *rax = 2;
+    printf("WOW\n");
+}
+
+fn(void, x86_64_linux_test_scribe, IR ir, void *_environment) {
+    sdebug(run test scribe);
+    var environment      = (x86_64_linux_env) _environment;
+    var target           = environment->target;
+    var replace_pointers = environment->replace_pointers;
+    ground();
+
+    // Used for separating preprocessing values
 
     // // -- Uncomment these to write the x86 output to a file allowing for easier debugging --
     // var fd = fopen("x86_64_linux_dump.bin", "w");
@@ -487,61 +767,21 @@ fn(void, x86_64_linux_test_scribe, IR ir, void *_environment) {
     __x86_64_linux_print_bytecode(target->size, target->array);
     printf("\n");
 
-    function_pointer();
-    int *rax_value = (int *) __x86_64_linux_get_rax_value();
-    int *rdi_value = (int *) __x86_64_linux_get_rdi_value();
+    // function_pointer();
+    // int *rax_value = (int *) __x86_64_linux_get_rax_value();
+    // int *rdi_value = (int *) __x86_64_linux_get_rdi_value();
 
-    __x86_64_linux_print_bytecode(target->size, &((byte *) function_pointer)[ -func_start ]);
+    // __x86_64_linux_print_bytecode(target->size, &((byte *) function_pointer)[ -func_start ]);
 
-    printf("\n");
-    printf("function signature: %p - %li\n", function_pointer, (i64) rdi_value);
-
-    printf("\nRDI: %p\n", rdi_value);
-    printf("\n" red("ATTENTION! A SIGSEGV IS EXPECTED BEHAVIOR:") "\n");
-
-    *rdi_value = 2;
-
-    printf("[RDI]: %i\n", *rdi_value);
+    // printf("\n");
+    // printf("function signature: %p - %li\n", function_pointer, (i64) rdi_value);
 
     release();
 }
 
-fn(void *, x86_64_linux_create_env, IR ir) {
-    var env              = ret(struct x86_64_linux_env);
-    env->block_locations = (void *) ret(i64, 0);
-    env->target = (bytecode) ret(char, 0);
-
-    return env;
-}
-
-fn(void, x86_64_linux_pop_to_tmp, void *_environment) {
-    var environment = (x86_64_linux_env) _environment;
-    __x86_64_linux_machine_pop_rdi(environment->target, mem);
-}
-
-fn(void, x86_64_linux_push_from_tmp, void *_environment) {
-    var environment = (x86_64_linux_env) _environment;
-    __x86_64_linux_machine_push_rdi(environment->target, mem);
-}
-
-fn(void, x86_64_linux_ret, void *_environment) {
-    var environment = (x86_64_linux_env) _environment;
-    // TODO: Add memory cleanup and persistence after I implement the memory safety
-    // Mechanism:
-    // 1. Get the parent block that's being returned from the allocator
-    // 2. Remove it from the current allocator arena and hand it over to the arena that's on top of
-    // us
-    // 3. Return the address we need in it
-    // This is faster and more efficient than cloning the entire array in the top arena
-    __x86_64_linux_machine_ret(environment->target, mem);
-}
-
-fn(void, x86_64_linux_const_to_tmp, i64 value, void *_environment) {
-    var environment = (x86_64_linux_env) _environment;
-    __x86_64_linux_machine_rdi(value, environment->target, mem);
-}
-
 // NOTE: This scribe uses RDI as a temporary register.
+
+// TODO: Make create_block add a return statement whenever a block ends (a new one begins)
 
 scribe get_scribe_x86_64_linux() {
     var me = (scribe) { //
@@ -549,11 +789,19 @@ scribe get_scribe_x86_64_linux() {
                         .create_env = x86_64_linux_create_env,
                         .useless    = x86_64_linux_useless,
                         .nop        = x86_64_linux_useless,
-                        .pop        = x86_64_linux_pop_to_tmp,
-                        .push       = x86_64_linux_push_from_tmp,
-                        .ret        = x86_64_linux_ret,
+                        .pop_tmp    = x86_64_linux_pop_to_tmp,
+                        .push_tmp   = x86_64_linux_push_from_tmp,
+                        .ret_tmp    = x86_64_linux_ret,
+                        .dryback    = x86_64_linux_dryback,
                         .constant   = x86_64_linux_const_to_tmp,
-                        .plain_addr = x86_64_linux_const_to_tmp
+                        .plain_addr = x86_64_linux_const_to_tmp,
+                        .jmp0       = x86_64_linux_jmp0,
+                        .jmpn0      = x86_64_linux_jmpn0,
+                        .deref_addr = x86_64_linux_addr_deref_to_tmp,
+                        .set        = x86_64_linux_addr_set_addr_to_tmp,
+                        .block      = x86_64_linux_create_block,
+                        .call       = x86_64_linux_call,
+                        .finish     = x86_64_linux_finish
     };
 
     return me;

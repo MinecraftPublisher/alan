@@ -6,12 +6,11 @@
 #define cat(a, b)   p_cat(a, b)
 #define A(type)                                                                                    \
     struct {                                                                                       \
-        i32   size;                                                                                \
+        uint64_t   size;                                                                                \
         i32   unit;                                                                                \
         type *array;                                                                               \
     }
-#define P(i) i *
-#define var  __auto_type
+#define var __auto_type
 
 #define size(arr)           ((arr)->size - 1)
 #define mem(size)           alloc(mem, size)

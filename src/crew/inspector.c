@@ -16,7 +16,7 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
 #ifdef enable_debug
     print_i(val, 0, context, 0);
 
-    for (i32 i = 0; i < symbols->size; i++) printf("\nsym %li\n", symbols->array[ i ]);
+    for (i32 i = 0; i < symbols->size; i++) printf("\nsym %i\n", symbols->array[ i ]);
     printf("\n\n");
 #endif
 
@@ -73,13 +73,11 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
 
         context->literals->array[ val->value.fn.entry ].value.fn.implemented = 1;
 
-        var clone = (symbolic) copy(symbols, mem);
-
         // for (i32 i = 0; i < val->value.fn.args->size; i++) {
         //     push(clone, val->value.fn.args->array[ i ], mem);
         // }
 
-        __validate(val->value.fn.block, clone, context, val->value.fn.type, mem);
+        __validate(val->value.fn.block, symbols, context, val->value.fn.type, mem);
 
         return exp_void;
     } else if (val->type == tcall) {
@@ -103,7 +101,7 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
         if (target.value.fn.arg_count != val->value.call.args->size) {
             print_i(val, 0, context, 0);
             printf(
-                "\n\nReferenced call: '%s' expected %i arguments but got %i\n",
+                "\n\nReferenced call: '%s' expected %i arguments but got %li\n",
                 context->symbols->array[ val->value.call.name ],
                 target.value.fn.arg_count,
                 val->value.call.args->size);
@@ -152,7 +150,7 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
             var magic = (type == NUM_TYPE ? -1 : 1);
             push(symbols, labs(val->value.call.args->array[ 1 ]->value.ref) * magic, mem);
             return magic;
-        } else if (val->value.call.name == SET_TYPE) {
+        } else if (val->value.call.name == SET_CALL) {
             var name = val->value.call.args->array[ 0 ]->value.ref;
 
             // name type must be ref
@@ -187,7 +185,7 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
             push(symbols, labs(val->value.call.args->array[ 0 ]->value.ref) * type, mem);
 
             return 0;
-        } else if (val->value.call.name == RET_TYPE) {
+        } else if (val->value.call.name == RET_CALL) {
             if (val->value.call.args->size == 0) {
                 if (top_type == exp_void) return 0;
                 else {
@@ -255,11 +253,12 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
     } else if (val->type == tcode) {
         var cloned_syms = copy(symbols, mem);
 
-        val->value.block->symbols = cloned_syms;
+        val->value.block.symbols = null;
+        val->value.block.symbols = (void*)cloned_syms;
 
         exp_type output = exp_void;
-        for (i32 i = 0; i < val->value.block->size; i++) {
-            output = __validate(val->value.block->array[ i ], cloned_syms, context, top_type, mem);
+        for (i32 i = 0; i < val->value.block.items->size; i++) {
+            output = __validate(val->value.block.items->array[ i ], cloned_syms, context, top_type, mem);
         }
 
         return output;

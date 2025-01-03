@@ -19,9 +19,13 @@ bits 64
     sys(cexit)
 %endmacro
 
+meow:
+    exit(1)
+
 _start:
     ; move 64-bit value into register
-    cmp rdi, 0
+    call rbx
+
     ; ret
 
     exit(0)

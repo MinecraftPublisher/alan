@@ -6,12 +6,11 @@
 
 //
 
+#include "types.h"
 #include "allocator.h"
 #include "globals.h"
-#include "types.h"
 
-#if __has_include(<exec_info.h>)
-    #include <execinfo.h>
+#include <execinfo.h>
 void dump_stack() {
     void  *array[ 100 ];
     size_t size;
@@ -21,16 +20,13 @@ void dump_stack() {
     strings = backtrace_symbols(array, size);
 
     if (strings != NULL) {
-        fprintf(stderrm "    Stack trace (%zd frames):\n", size);
+        printf("    Stack trace (%zd frames):\n", size);
         for (size_t i = 0; i < size; i++) { printf("        #%zu: %s\n", i, strings[ i ]); }
         free(strings);
     } else {
-        fprintf(stderr, "Failed to get stack trace\n");
+        printf("Failed to get stack trace\n");
     }
 }
-#else
-void dump_stack() { fprintf(stderr, "Your compilation environment does not support exec_info.\n"); }
-#endif
 
 string str(char *in, i32 len, Arena *arena) {
     var space = (char *) alloc(arena, len);
@@ -41,8 +37,10 @@ string str(char *in, i32 len, Arena *arena) {
     return (string) { .unit = 1, .size = len, .array = space };
 }
 
-fn(A, __new_array, i32 count, i32 unit) {
-    A arr      = alloc(mem, sizeof(struct Array));
+#define __new_array(count, unit, mem) ____new_array(count, unit, (char*)__FUNCTION__, __FILE__, __LINE__, mem)
+fn(Array, ____new_array, i64 count, i32 unit, char* function, char* file, int line) {
+    adeb(printf(blue("New array ( count %i unit %i ) function %s file %s line %i") "\n", count, unit, function, file, line));
+    Array arr      = alloc(mem, sizeof(struct Array));
     arr->size  = count;
     arr->unit  = unit;
     arr->array = alloc(mem, sizeof(byte) * (count + 1) * unit);
@@ -50,7 +48,10 @@ fn(A, __new_array, i32 count, i32 unit) {
     return arr;
 }
 
-void extend(A array, i32 count, Arena *mem) {
+#define extend(arr, count, mem) __extend(arr, count, mem, (char*)__FUNCTION__, __FILE__, __LINE__)
+
+void __extend(Array array, i64 count, Arena *mem, char* function, char* file, int line) {
+    adeb(printf(blue("Extend function %s file %s line %i") "\n", function, file, line));
     var old      = array->array;
     array->array = alloc(mem, sizeof(byte) * (array->size + count + 1) * array->unit);
     memcpy(array->array, old, array->size * array->unit);
@@ -58,9 +59,11 @@ void extend(A array, i32 count, Arena *mem) {
     // printf("Extend(0x%p, 0x%p);\n", old, array->array);
 }
 
-void *copy(void *_array, Arena *mem) {
-    A array          = _array;
-    A new_array      = alloc(mem, sizeof(struct Array));
+#define copy(arr, mem) (typeof(arr))__copy(arr, mem, (char*)__FUNCTION__, __FILE__, __LINE__)
+void *__copy(void *_array, Arena *mem, char* function, char* file, int line) {
+    adeb(printf(blue("Copy function %s file %s line %i") "\n", function, file, line));
+    Array array          = _array;
+    Array new_array      = alloc(mem, sizeof(struct Array));
     new_array->size  = array->size;
     new_array->unit  = array->unit;
     new_array->array = alloc(mem, (new_array->size + 1) * new_array->unit);
@@ -76,9 +79,11 @@ byte starts_with(ctx con, char *predicate) {
 void error(ctx con, char *text) {
     // TODO: Improve error reporting, maybe add stack trace?
     if (con == analyzer_error) printf("Inspector Error: %s\n", text);
-    else if (con == ir_error)
+    else if (con == ir_error) {
         printf("Tourist Error: %s\n", text);
-    else {
+    } else if (con == scribe_error) {
+        printf("Scribe Error: %s\n", text);
+    } else {
         for (i32 i = 0; i < con->str.size; i++) { putchar(con->str.array[ i ]); }
         printf("\nLibrarian Error: %s\nIndex: %i\n\n", text, con->current);
     }

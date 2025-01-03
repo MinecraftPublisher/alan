@@ -5,9 +5,9 @@
 
 #include "../globals.h"
 #include "../macros.h"
+#include "../printer.h"
 #include "../types.h"
 #include "../utils.h"
-#include "../printer.h"
 
 void print_inst(IR_INST inst, IR scope, ctx context) {
     ground();
@@ -23,6 +23,7 @@ void print_inst(IR_INST inst, IR scope, ctx context) {
                 my_name < 0 ? "block" : context->symbols->array[ my_name ]);
             break;
         case irret: printf("RET\n"); break;
+        case irdryback: printf("DRYBACK\n"); break;
         case irjmp0: printf(red("JMP0 ") yellow("__0x%X\n"), inst.data.ijmp0.ref); break;
         case irjmpn0: printf(red("JMPN0") yellow(" __0x%X\n"), inst.data.ijmpn0.ref); break;
         case irconst: printf(magenta("CONST ") green("%i\n"), inst.data.iconstant.value); break;
@@ -82,18 +83,20 @@ void print_inst(IR_INST inst, IR scope, ctx context) {
 fn(void, tourist, IR scope, ctx context) {
     ground();
 
-    i32 skips = 0;
+    i32 skips         = 0;
+    i64 skip_segments = -stdlib_size;
 
     printf("== Intermediate Representation ==\n\n");
     for (i32 i = scope.segments->size; i >= 0; i--) {
         var cur = scope.segments->array[ i ];
 
         if (*(i32 *) &cur == 0) continue;
+        skip_segments++;
         if (cur.body->size == 0) continue;
+        skip_segments--;
 
         if (cur.name == 1) printf(bold_blue("main") ":\n");
-        else
-            printf(bold_blue("__0x%X") ":\n", i);
+        else { printf(bold_blue("0x%X") ":\n", i); }
         for (i32 j = 0; j < cur.body->size; j++) {
             var inst = cur.body->array[ j ];
             if (inst.op == iruseless || inst.op == irnop) {
@@ -107,21 +110,21 @@ fn(void, tourist, IR scope, ctx context) {
     }
 
     printf(
-        "=== Tourist's Take ===\n - %i instruction%s\n - %i literal%s\n - %li segment%s (%li "
+        "=== Tourist's Take ===\n - %i instruction%s\n - %li literal%s\n - %li segment%s (%li "
         "total, %li builtin)\n\n",
         scope.inst_count - skips,
         scope.inst_count - skips == 1 ? "" : "s",
         scope.literals->size,
         scope.literals->size == 1 ? "" : "s",
-        scope.segments->size - stdlib_size * 2,
-        (scope.segments->size - stdlib_size * 2) == 1 ? "" : "s",
-        scope.segments->size - stdlib_size,
+        scope.segments->size - skip_segments - stdlib_size * 2,
+        (scope.segments->size - skip_segments - stdlib_size * 2) == 1 ? "" : "s",
+        scope.segments->size - skip_segments - stdlib_size,
         stdlib_size);
 
     printf("== Literals ==\n");
     for (i32 i = 0; i < scope.literals->size; i++) {
         var item = scope.literals->array[ i ];
-        scope.compiler_data->data_size += item.type == ir_lnum ? 0 : item.value.string.size;
+        scope.compiler_data.data_size += item.type == ir_lnum ? 0 : item.value.string.size;
         printf(
             " - Index(%i) Type(%s) | Value(%s%s%s)\n",
             i,
@@ -168,6 +171,15 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
                 // result.data.iaddr.value);
                 result.data.iaddr.value *= term->value.ref > 0 ? -1 : 1;
                 // printf("%s %li\n", context->symbols->array[target], term->value.ref);
+
+                for (i32 i = 0; i < stdlib_size; i++) {
+                    if (stdlib[ i ].ref == target) {
+                        print_i(term, 0, context, 0);
+                        printf("\n\n");
+                        error(ir_error, "Restricted reference!");
+                    }
+                }
+
                 goto END;
             }
         }
@@ -190,7 +202,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             result.data.iset.dest = (topindex << 32) + subindex;
 
             var resolved = llabs(result.data.iset.dest);
-            push(scope->compiler_data->reserves, resolved, mem);
+            push(scope->compiler_data.reserves, resolved, mem);
 
             represent(term->value.call.args->array[ 1 ], scope, name_scope, cur, context, mem);
 
@@ -205,7 +217,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             var resolved = llabs(cur->array[ cur->size - 1 ].data.iaddr.value);
             var subindex = (resolved << 32) >> 32;
             var topindex = resolved >> 32;
-            push(scope->compiler_data->reserves, resolved, mem);
+            push(scope->compiler_data.reserves, resolved, mem);
 
             result.op = ircall;
 
@@ -216,12 +228,10 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
                 real_name = i;
             }
 
-            push(cur, push_stack, mem);
-
             result.data.icall.ref = real_name;
 
             goto END;
-        } else if (name == IF_TYPE) {
+        } else if (name == IF_CALL) {
             var seg_name          = scope->segments->size;
             var me                = (IR_FUNCTION) { .name = -seg_name, .body = (void *) cur };
             var new_scope         = (IR_SCOPE_ARRAY) ret(i32, 1);
@@ -249,7 +259,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             // cur->size--;
 
             goto END;
-        } else if (name == UNLESS_TYPE) {
+        } else if (name == UNLESS_CALL) {
             var seg_name          = scope->segments->size;
             var me                = (IR_FUNCTION) { .name = -seg_name, .body = (void *) cur };
             var new_scope         = (IR_SCOPE_ARRAY) ret(i32, 1);
@@ -275,7 +285,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
                 mem);
 
             goto END;
-        } else if (name == WHILE_TYPE) {
+        } else if (name == WHILE_CALL) {
             var seg_name          = scope->segments->size;
             var me                = (IR_FUNCTION) { .name = -seg_name, .body = (void *) cur };
             var new_scope         = (IR_SCOPE_ARRAY) ret(i32, 1);
@@ -309,9 +319,10 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
                 mem);
 
             push(me.body, result, mem);
+            scope->inst_count++;
 
             goto END;
-        } else if (name == SET_TYPE) {
+        } else if (name == SET_CALL) {
             represent(term->value.call.args->array[ 1 ], scope, name_scope, cur, context, mem);
 
             var target   = term->value.call.args->array[ 0 ]->value.ref;
@@ -332,7 +343,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             push(name_scope->array[ name_scope->size - 1 ], target, mem);
             resolved = (((i64) name_scope->size - 1) << 32)
                        + (i64) (name_scope->array[ name_scope->size - 1 ]->size - 1);
-            push(scope->compiler_data->reserves, resolved, mem);
+            push(scope->compiler_data.reserves, resolved, mem);
 
         SET_FINISH:
 
@@ -345,6 +356,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             var pop_stack = (IR_INST) { .op = irpop, .data.ipop = {} };
 
             push(cur, pop_stack, mem);
+            scope->inst_count++;
 
             var target   = term->value.call.args->array[ 1 ]->value.ref;
             var resolved = (i64) -1;
@@ -357,7 +369,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
                     if (labs(cur) != labs(target)) continue;
 
                     resolved = (((i64) i) << 32) + (i64) j;
-                    push(scope->compiler_data->reserves, resolved, mem);
+                    push(scope->compiler_data.reserves, resolved, mem);
                     goto ARG_FINISH;
                 }
             }
@@ -373,7 +385,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             result.data.iset.dest = resolved;
 
             goto END;
-        } else if (name == RET_TYPE) {
+        } else if (name == RET_CALL) {
             for (i32 i = 0; i < term->value.call.args->size; i++) {
                 represent(term->value.call.args->array[ i ], scope, name_scope, cur, context, mem);
             }
@@ -381,13 +393,20 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             result.op = irret;
 
             goto END;
-        }
+        } else if (name == DRYBACK_CALL) {
+            for (i32 i = 0; i < term->value.call.args->size; i++) {
+                represent(term->value.call.args->array[ i ], scope, name_scope, cur, context, mem);
+            }
 
-        var push_stack = (IR_INST) { .op = irpush, .data.ipush = {} };
+            result.op = irdryback;
+
+            goto END;
+        }
 
         for (i32 i = term->value.call.args->size - 1; i >= 0; i--) {
             represent(term->value.call.args->array[ i ], scope, name_scope, cur, context, mem);
             push(cur, push_stack, mem);
+            scope->inst_count++;
         }
 
         result.op = ircall;
@@ -401,7 +420,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
 
         result.data.icall.ref = real_name;
     } else if (term->type == tcode) {
-        if (term->value.block->size >= 16 || parser_optimizations > OPT_BASIC) {
+        if (term->value.block.items->size >= 16 || parser_optimizations > OPT_BASIC) {
             var seg_name = scope->segments->size;
             var me       = (IR_FUNCTION) { .name = -seg_name, .body = (void *) ret(IR_INST, 0) };
             push(scope->segments, me, mem);
@@ -411,9 +430,9 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             var my_scope          = (IR_SCOPE) copy(name_scope, mem);
             push(my_scope, new_scope, mem);
 
-            for (i32 i = 0; i < term->value.block->size; i++) {
+            for (i32 i = 0; i < term->value.block.items->size; i++) {
                 represent(
-                    term->value.block->array[ i ],
+                    term->value.block.items->array[ i ],
                     scope,
                     my_scope,
                     (INST_LIST) me.body,
@@ -424,8 +443,9 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             result.op             = ircall;
             result.data.icall.ref = seg_name;
         } else {
-            for (i32 i = 0; i < term->value.block->size; i++) {
-                represent(term->value.block->array[ i ], scope, name_scope, cur, context, mem);
+            for (i32 i = 0; i < term->value.block.items->size; i++) {
+                represent(
+                    term->value.block.items->array[ i ], scope, name_scope, cur, context, mem);
             }
 
             // result.op = irnop;
@@ -445,9 +465,9 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
         var my_scope = (IR_SCOPE) copy(name_scope, mem);
         push(my_scope, new_scope, mem);
 
-        for (i32 i = 0; i < term->value.fn.block->value.block->size; i++) {
+        for (i32 i = 0; i < term->value.fn.block->value.block.items->size; i++) {
             represent(
-                term->value.fn.block->value.block->array[ i ],
+                term->value.fn.block->value.block.items->array[ i ],
                 scope,
                 my_scope,
                 (INST_LIST) my_segment.body,
@@ -481,12 +501,12 @@ END:
 }
 
 fn(IR, emit, A(i) * term, ctx context) {
-    var output                     = (IR) { .segments             = (void *) ret(IR_FUNCTION, 0),
-                                            .literals             = (void *) ret(IR_LITERAL, 0),
-                                            .inst_count           = 0,
-                                            .global_name_scope_id = 0,
-                                            .compiler_data        = ret(struct compiler_data) };
-    output.compiler_data->reserves = (void *) ret(i64, 0);
+    var output                    = (IR) { .segments             = (void *) ret(IR_FUNCTION, 0),
+                                           .literals             = (void *) ret(IR_LITERAL, 0),
+                                           .inst_count           = 0,
+                                           .global_name_scope_id = 0,
+                                           .compiler_data = { .reserves = (void *) ret(i64, 0), .context = context } };
+    output.compiler_data.reserves = (void *) ret(i64, 0);
 
     var main_segment = (IR_FUNCTION) { .name = 1, .body = (void *) ret(IR_INST, 0) };
 

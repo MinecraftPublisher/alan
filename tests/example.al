@@ -12,12 +12,12 @@ fn list cat [
 
     while [ sub left_len li ] [
         push result [ get left li ];
-        set li [ dec li ];
+        set li [ inc li ];
     ];
 
     while [ sub right_len ri ] [
         push result [ get right ri ];
-        set ri [ dec ri ];
+        set ri [ inc ri ];
     ];
 
     ret result;

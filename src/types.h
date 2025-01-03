@@ -1,22 +1,24 @@
 #pragma once
 
-#include <stdint.h>
 #include "macros.h"
+#include <stdint.h>
 
 //
+
+void dump_stack();
 
 typedef unsigned char byte;
 typedef int32_t       i32;
 typedef int64_t       i64;
 
 typedef struct Array {
-    i32   size;
+    uint64_t   size;
     i32   unit;
     byte *array;
-} *A;
+} *Array;
 
 typedef struct Block {
-    i32   size;
+    i64   size;
     i32   used;
     byte *data;
 } Block;
@@ -64,11 +66,9 @@ struct i {
         i32 str_id;
         i32 num_id;
         struct {
-            i32 size;
-            i32 unit;
-            i  *array;
+            A(i) * items;
             A(char *) * symbols;
-        } *block;
+        } block;
         struct {
             symbol name;
             A(i) * args;
@@ -93,13 +93,14 @@ struct standard_entry {
     i32   args;
     char  types[ 256 ];
     char  ret;
+    i32   ref;
 };
 
 typedef i32 iaddress;
 typedef i64 complexsym;
 
 typedef struct {
-    i32  size;
+    uint64_t  size;
     i32  unit;
     i32 *array;
 } *IR_SCOPE_ARRAY;
@@ -118,7 +119,8 @@ typedef struct {
         irnop,
         irconst,
         iraddr,
-        irset
+        irset,
+        irdryback
     } op;
     union {
         struct IR_INST_POP {
@@ -130,6 +132,8 @@ typedef struct {
         } icall; // Call address and store current PC + 1 in the stack to return.
         struct IR_INST_RET {
         } ret; // Pop the top value in call stack and jump to it.
+        struct IR_INST_DRYBACK {
+        } dryback; // Same as return, but without memory management.
         struct IR_INST_JMP0 {
             iaddress ref;
         } ijmp0; // Jump to address if TMP is 0
@@ -168,8 +172,8 @@ typedef struct {
 typedef A(IR_INST) * INST_LIST;
 
 struct compiler_data {
-    i32 data_size;
-
+    ctx context;
+    i64 data_size;
     A(i64) * reserves;
 };
 
@@ -181,33 +185,5 @@ typedef struct {
     i32 main_segment;
     i32 global_name_scope_id;
 
-    struct compiler_data *compiler_data;
+    struct compiler_data compiler_data;
 } IR;
-
-typedef A(byte) * bytecode;
-
-struct Pointer {
-    i64 value;
-    i64 put_in;
-};
-typedef A(struct Pointer) * indexes;
-
-typedef struct {
-    unsigned char e_ident[ EI_NIDENT ]; // ELF identification
-    uint16_t      e_type;               // Object file type
-    uint16_t      e_machine;            // Machine type
-    uint32_t      e_version;            // Object file version
-    uint64_t      e_entry;              // Entry point address
-    uint64_t      e_phoff;              // Program header offset
-    uint64_t      e_shoff;              // Section header offset
-    uint32_t      e_flags;              // Processor-specific flags
-    uint16_t      e_ehsize;             // ELF header size
-    uint16_t      e_phentsize;          // Size of program header entry
-    uint16_t      e_phnum;              // Number of program header entries
-    uint16_t      e_shentsize;          // Size of section header entry
-    uint16_t      e_shnum;              // Number of section header entries
-    uint16_t      e_shstrndx;           // Section header string table index
-} Elf64_Ehdr;
-
-void                     __dummy() {}
-typedef typeof(__dummy) *mc;

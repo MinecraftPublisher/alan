@@ -49,28 +49,31 @@ ctx main_setup(char *filename, Arena *scratch) {
         if (!strcmp(stdlib[ i ].name, "list")) LIST_TYPE = con->symbols->size - 1;
         if (!strcmp(stdlib[ i ].name, "num")) NUM_TYPE = con->symbols->size - 1;
         if (!strcmp(stdlib[ i ].name, "arg")) ARG_TYPE = con->symbols->size - 1;
-        if (!strcmp(stdlib[ i ].name, "set")) SET_TYPE = con->symbols->size - 1;
-        if (!strcmp(stdlib[ i ].name, "ret")) RET_TYPE = con->symbols->size - 1;
-        if (!strcmp(stdlib[ i ].name, "if")) IF_TYPE = con->symbols->size - 1;
-        if (!strcmp(stdlib[ i ].name, "unless")) UNLESS_TYPE = con->symbols->size - 1;
-        if (!strcmp(stdlib[ i ].name, "while")) WHILE_TYPE = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "set")) SET_CALL = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "ret")) RET_CALL = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "if")) IF_CALL = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "unless")) UNLESS_CALL = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "while")) WHILE_CALL = con->symbols->size - 1;
+        if (!strcmp(stdlib[ i ].name, "dryback")) DRYBACK_CALL = con->symbols->size - 1;
+
+        stdlib[ i ].ref = con->symbols->size - 1;
     }
 
     return con;
 }
 
-A(i) * main_parse(ctx con, Arena *scratch) {
-    var terms = new (i, 0);
+A(i) * main_parse(ctx con, Arena *mem) {
+    var terms = ret (i, 0);
 
     parse_null(con);
     while (!eof()) {
-        var result = parse_action(con, scratch);
+        var result = parse_action(con, mem);
         if (result == null) {
             parse_null(con);
             if (!eof()) { error(con, "Invalid syntax!"); }
         }
 
-        push(terms, result, scratch);
+        push(terms, result, mem);
         if (skip() != ';') error(con, "Expected semicolon...");
         parse_null(con);
     }
@@ -93,11 +96,9 @@ int main(int argc, char **argv) {
 
     var terms = main_parse(con, scratch);
 
+
     // Perform static analysis
     validate((void *) terms, con, scratch);
-
-    // Generate intermediate representation
-    var ir = emit((void *) terms, con, scratch);
 
     // Print AST structure
     for (i32 i = 0; i < terms->size; i++) {
@@ -105,16 +106,21 @@ int main(int argc, char **argv) {
         printf("\n");
     }
 
+    // Generate intermediate representation
+    var ir = emit((void *) terms, con, scratch);
+
     printf("\n\n");
     tourist(ir, con, scratch);
     printf("\n");
 
     // x86 test
 
-    var current = get_scribe_x86_64_linux();
-    var scribe_env = current.create_env(ir, scratch);
+    var current    = get_scribe_x86_64_linux();
+    // var scribe_env = current.create_env(ir, scratch);
 
-    current.tests(ir, scribe_env, scratch);
+    // current.tests(ir, scribe_env, scratch);
+
+    populate(current, ir);
 
     // release();
 }
