@@ -1,0 +1,36 @@
+{
+        // put rax in pointer, put 32 in rax and restore rax from pointer
+
+        // machine_rax_in_ptr(0x0, target, (void *) replace_pointers, st_st_target, scratch);
+        // machine_rax(32, target, scratch);
+        // machine_ptr_in_rax(0x0, target, (void *) replace_pointers, st_st_target, scratch);
+    }
+
+    {
+        // mmap, put ptr in memory, unmap it, put it back into rax and return
+
+        // __x86_64_linux_machine_mmap(target, scratch);
+        // __x86_64_linux_machine_esi(32, target, scratch);
+        // __x86_64_linux_machine_syscall(target, scratch);
+
+        // machine_push_rax(target, scratch);
+        // __x86_64_linux_machine_rax_in_ptr(0x0, target, replace_pointers, scratch);
+
+        // __x86_64_linux_machine_rsi(32, target, scratch);
+        // __x86_64_linux_machine_ptr_in_rdi(0x0, target, replace_pointers, scratch);
+        // machine_pop_rax(target, scratch);
+        // machine_rax_in_rdi(target, scratch);
+        // __x86_64_linux_machine_munmap(target, scratch);
+
+        // Uncomment to unmap the allocated memory and therefore causing a segfault when
+        // `*rax_value = 2;` is ran.
+        // __x86_64_linux_machine_syscall(target, scratch);
+        // __x86_64_linux_machine_ptr_in_rdi(0x0, target, replace_pointers, scratch);
+    }
+
+    {
+        // while true loop, hopefully...
+
+        // __x86_64_linux_machine_rdi(0, target, scratch);
+        // __x86_64_linux_machine_jmp0(target->size, target, replace_pointers, scratch);
+    }
