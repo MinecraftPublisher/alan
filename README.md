@@ -1,30 +1,33 @@
 # Alan - Array Language
 This is a simple compiler for a [memory-safe] programming language where everything (even numbers) are arrays. It is very primitive, and reading the `template.c` file gives you a way better understanding of the built-in functions.
 
-It *may* be turing-complete (I haven't checked, but it probably is), but it requires most commonly used utilities to be written using C interfacing, or written directly into the C templating. An updating including a proper guide and an stdlib alongside troubleshooting coming soon.
+It is turing-complete, but:
+- The C version is not fully usable yet
+- The typescript version is outdated and it requires most commonly used utilities to be written using C interfacing, or written directly into the C templating. An updating including a proper guide and an stdlib alongside troubleshooting coming soon.
 
 ## Updates
+- Update 1.p3C: Static analyzer is now improved, and the compiler can (sloppily) target x86-64 direct bytecode output for linux, but only as JIT.
 - Update 1.p2C: Created and improved the C parser + static analyzer. The end goal is compiling programs directly to x86_64 machine code as an executable.
 - Update 1.p1: Added literal unrolling and caching, optimized function calls and reduced dereference count. The compiled executable now runs about ***100x*** faster!
 
 ## Fun facts
 - The name wasn't originally supposed to be a reference to Alan Turing, but later on I realized the correlation.
-- The static analyzer is called the Overlord. Why? I don't know, I didn't want to just call it "Static Analyzer". That would be boring.
+- The static analyzer is called the Inspector. Why? I don't know, I didn't want to just call it "Static Analyzer". That would be boring. The parser is called Librarian, the intermediate representation generator is called Tourist, and the executable generators are called Scribes.
 
 ---
 
 ## Experimental Alcc (C rewrite) build:
->This version is in-development and is not fully fledged, as in it only produces an intermediate representation and not an output x86 binary.
+>This version is in-development and is not fully fledged, as in it only produces a Just-In-Time compiled function pointer for 64-bit x86 systems running linux. Even that isn't fully fledged out.
 1. Install clang and make
 2. Clone the repo and cd into it
-3. Run `make`. The parser executable will be in the `out/` folder and it will also automatically run it with a fizzbuzz test file.
+3. Run `make`. The parser executable will be in the `out/` folder and it will also automatically run it with the test file of the day.
 
 ## Build:
->Currently only the typescript version that emits C code and compiles it using `clang` is available. The C version will emit machine code directly with no dependency requirements and it is a work in progress.
+>Currently the typescript version that emits C code and compiles it using `clang` is available. The C version is trying to emit machine code directly with no dependency requirements and it is a work in progress.
 1. Install bun
 2. Clone the repo and cd into the repo and then to the `ts_version/` folder
 3. Run `make build`
-4. Compiler executable is now in `./out/alc`. Run like this: `alc <input_file> <output_executable>`
+4. Compiler executable is now in `ts_version/out/alc`. Run like this: `alc <input_file> <output_executable>`
 
 **Note**: The compiler requires `clang` in path to work.
 
@@ -66,7 +69,7 @@ while [ sub 256 i ] [ # Print all ASCII characters
 ];
 ```
 
-## 5. Direct C interface (Deprecated in barebones)
+## 5. Direct C interface (Deprecated in C version)
 ```
 fn num mod [
     arg a;
@@ -142,7 +145,7 @@ This should print `Hello, World!`.
 
 
 # C version
-The C version is memory-safe, does all the parsing on its own and currently can convert the AST into an Intermediate Representation. The currently supported IR language is very basic and has only 10 instructions. It is semi-stack-based, pushing arguments to a dynamic stack for when functions are called. I have plans to write plugins that would convert this IR code into machine code directly, and this means I'll be able to support new architectures without having to recycle and rewrite huge parts of the code. The #1 planned architecture to be supported is x86, with #2 being arm, #3 being RISC and #4 being my own custom cpu architecture, [bit](https://github.com/MinecraftPublisher/bit).
+The C version is memory-safe, does all the parsing on its own and currently can convert the AST into sloppy JIT bytecode. The currently supported IR language is very basic and has only 12 instructions. It is semi-stack-based, pushing arguments to a dynamic stack for when functions are called. The #1 planned architecture to be supported is x86, #2 being javascript, #3 being C, #4 being arm, #5 being RISC and #6 being my own custom cpu architecture, [bit](https://github.com/MinecraftPublisher/bit).
 
 - The following code snippet:
 
@@ -153,7 +156,7 @@ log i;
 puts "Hello World!";
 ```
 
-- Converts into this IR:
+- Converts into this IR (the x86 output for complex functions isn't done yet):
 
 ```
 main:
@@ -173,25 +176,30 @@ main:
 
 # TODO and chores
 Coming soon in future updates! I've started work on the x86 output, so expect this spot to be pretty cluttered.
-- [ ] Implement a call stack and an arena stack (for return calls)
-- [ ] `pop(mov [cur_stack], %rex);`
-- [ ] `push(push_stack %rex);`
+- [ ] Implement an arena stack
 - [ ] `call(complicated...);`
 - [ ] `ret(complicated...);`
-- [ ] `jmp0(cmp %rex; jmp0 [addr]);`
-- [ ] `jmpn0(reverse of jmp0)`
-- [ ] `addrI(mov %rex, addr);`
-- [ ] `addrD(mov %rex, [addr]);`
-- [ ] `set(mov [addr], %rex);`
-- [ ] Implement direct linux x86 output (working on it)
-- [ ] Better error checking (soon) (kinda done?)
 - [ ] Better syntax?
-- [ ] Write a better stdlib
+- [ ] Write a better stdlib (trying)
 - [ ] Implement carrying for arithmetic functions (eg. addc)
-- [ ] Eliminate / shorten code
 - [ ] Bundle code + x86 together to allow runtime code inspection and modification (maybe?)
+- [ ] Write code elimination
+- [ ] Add bytecode optimizations
+- [ ] Write the allocator in alan itself
+- [x] `pop(mov [cur_stack], %rex);`
+- [x] `push(push_stack %rex);`
+- [x] `jmp0(cmp %rex; jmp0 [addr]);`
+- [x] `jmpn0(reverse of jmp0)`
+- [x] `addrI(mov %rex, addr);`
+- [x] `addrD(mov %rex, [addr]);`
+- [x] `set(mov [addr], %rex);`
+- [x] Implement a call stack
+- [x] Implement direct linux x86 output (almost done)
+- [x] Better error checking (soon) (kinda done?)
+- [x] Eliminate / shorten code (Code structuralized)
 - [x] Rewrite parser in C
 - [x] Rewrite codegen in C
 - [x] Optimize performance
 - [x] Finish the IR emitter (done besides bug fixes and testing)
 - [x] Eliminate / shorten code pass 1
+

@@ -967,7 +967,7 @@ fn(void, x86_64_linux_finish, void *_environment) {
 
     // system("ndisasm -b 64 out/x86_64_linux_dump.bin");
     printf("\n");
-    // system("ndisasm -b 64 out/x86_64_linux_dump_symbcolic.bin | " awk_patch);
+    // system("ndisasm -b 64 out/x86_64_linux_dump_symbc3eolic.bin | " awk_patch);
     fd = fopen("out/x86_64_linux_dump.asm", "w");
     fprintf(fd, "; start: %p\n", function_pointer);
     fclose(fd);
