@@ -211,6 +211,32 @@ fn(exp_type, __validate, i val, symbolic symbols, ctx context, exp_type top_type
             }
 
             return exp_void;
+        } else if (val->value.call.name == DRYBACK_CALL) {
+            if (val->value.call.args->size == 0) {
+                if (top_type == exp_void) return 0;
+                else {
+                    print_i(val, 0, context, 0);
+                    printf("\n");
+                    error(
+                        analyzer_error,
+                        "A dry return command in a non-void function must have a return value!");
+                }
+            } else if (top_type == exp_void) {
+                print_i(val, 0, context, 0);
+                printf("\n");
+                error(analyzer_error, "A dry return command in a void function takes zero arguments!");
+            }
+
+            var value = val->value.call.args->array[ 0 ];
+            var type  = __validate(value, symbols, context, top_type, mem);
+
+            if (type != top_type) {
+                print_i(val, 0, context, 0);
+                printf("\n");
+                error(analyzer_error, "Dry return command's argument must match the function's type!");
+            }
+
+            return exp_void;
         }
 
         for (i32 i = 0; i < val->value.call.args->size; i++) {

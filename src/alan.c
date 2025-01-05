@@ -116,11 +116,11 @@ int main(int argc, char **argv) {
     // x86 test
 
     var current    = get_scribe_x86_64_linux();
-    // var scribe_env = current.create_env(ir, scratch);
 
+    // var scribe_env = current.create_env(ir, scratch);
     // current.tests(ir, scribe_env, scratch);
 
-    populate(current, ir);
+    populate(current, ir, con);
 
     // release();
 }

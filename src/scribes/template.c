@@ -41,6 +41,7 @@ scribe_sub_section(addr_no_deref_to_tmp, i64 value);
 scribe_sub_section(addr_set_addr_to_tmp, i64 value);
 scribe_sub_section(create_block, i64 name, IR ir);
 scribe_sub_section(run_tests, IR ir);
+scribe_sub_section(cycle);
 scribe_sub_section(finish);
 fn(void*, __template_scribe_init_env, IR ir);
 
@@ -62,6 +63,7 @@ typedef struct {
     typeof(__template_scribe_run_tests)* tests;
     typeof(__template_scribe_init_env)* create_env;
     typeof(__template_scribe_finish)* finish;
+    typeof(__template_scribe_cycle)* cycle;
 } scribe;
 
 // #define scribe_debug

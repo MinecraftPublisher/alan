@@ -19,13 +19,26 @@ bits 64
     sys(cexit)
 %endmacro
 
-meow:
-    exit(1)
+%define stack_ptr 0x1122334455667788
+%define stack_size 8192
+
+_push:
+    mov r10, stack_ptr
+    cmp r13, 0
+    cmovl r13, r10
+    mov [r10 + r13 * 8], rdi
+    dec r13
+
+_pop:
+    mov r10, stack_ptr
+    cmp r13, stack_size
+    cmovg r13, r10
+    mov rdi, [r10 + r13 * 8]
+    inc r13
+    int 3
 
 _start:
-    ; move 64-bit value into register
-    call rbx
-
-    ; ret
+    mov r13, 0
+    mov r13, 0
 
     exit(0)

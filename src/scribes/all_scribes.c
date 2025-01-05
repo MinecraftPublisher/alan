@@ -2,8 +2,9 @@
 
 #include "template.c"
 #include "x86_64_linux.c"
+// #include "../crew/tourist.c"
 
-void populate(scribe writer, IR ir) {
+void populate(scribe writer, IR ir, ctx context) {
     ground();
     var env = writer.create_env(ir, scratch);
 
@@ -11,7 +12,7 @@ void populate(scribe writer, IR ir) {
         var segment = ir.segments->array[ i ];
 
         if (segment.body == null) continue;
-        if(segment.body->size == 0) continue;
+        if (segment.body->size == 0) continue;
 
         writer.block(i, ir, env, scratch);
 
@@ -19,11 +20,14 @@ void populate(scribe writer, IR ir) {
             var instruction = segment.body->array[ j ];
 
             if (instruction.op == iruseless) {
-                
                 writer.useless(env, scratch);
             } else if (instruction.op == irpop) {
                 writer.pop_tmp(env, scratch);
             } else if (instruction.op == irpush) {
+                // if (segment.body->array[ j + 1 ].op == irpop) {
+                // j++;
+                // continue;
+                // }
                 writer.push_tmp(env, scratch);
             } else if (instruction.op == ircall) {
                 writer.call(instruction.data.icall.ref, ir, env, scratch);
@@ -50,9 +54,7 @@ void populate(scribe writer, IR ir) {
                     }
                 }
 
-                if(name == -1) {
-                    error(scribe_error, "Could not find variable name!");
-                }
+                if (name == -1) { error(scribe_error, "Could not find variable name!"); }
 
                 if (noderef) {
                     writer.plain_addr(name, env, scratch);
@@ -70,12 +72,13 @@ void populate(scribe writer, IR ir) {
                     }
                 }
 
-                if(name == -1) {
-                    error(scribe_error, "Could not find variable name!");
-                }
+                if (name == -1) { error(scribe_error, "Could not find variable name!"); }
 
                 writer.set(name, env, scratch);
             }
+
+            // print_inst(instruction, ir, context);
+            writer.cycle(env, scratch);
         }
     }
 

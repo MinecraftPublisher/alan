@@ -14,6 +14,31 @@ struct Pointer {
 };
 typedef A(struct Pointer) * indexes;
 
+struct block_loc {
+    i64 alan_name;
+    i64 actual_address;
+};
+
+#define STACK_SIZE         ((1 << 13) * sizeof(i64))
+#define RESTORE_STACK_SIZE ((1 << 8) * sizeof(i64))
+typedef struct x86_64_linux_env {
+    A(struct block_loc) * block_locations;
+    indexes  replace_pointers;
+    bytecode target;
+    IR       ir;
+
+    i64 func_start;
+    i64 put_main;
+
+    i64 main_segment; // SET AFTER INIT
+    i64 allocator;    // SET AFTER INIT
+
+    i64 stack_diff;
+
+    i64 *stack;
+    i64 *restore_stack;
+} *x86_64_linux_env;
+
 typedef struct {
     unsigned char e_ident[ EI_NIDENT ]; // ELF identification
     uint16_t      e_type;               // Object file type
@@ -42,24 +67,25 @@ typedef typeof(__dummy) *mc;
  * [x] push_from_tmp
  * [ ] call
  * [ ] ret
+ * [x] dryback
  * [x] jmp0
  * [x] jmpn0
  * [x] const_to_tmp
  * [x] addr_deref_to_tmp
  * [x] addr_no_deref_to_tmp
  * [x] addr_set_addr_to_tmp
- * [ ] create_block
+ * [x] create_block
  * [x] run_tests
  * [x] create_env
  */
 
-// [ ] create_block();
+// [x] create_block();
 // [x] pop(mov [cur_stack], %rex);
 // [x] push(push_stack %rex);
 // [ ] call(complicated...);
 // [ ] ret(complicated...);
-// [ ] jmp0(cmp %rex; jmp0 [addr]);
-// [ ] jmpn0(reverse of jmp0)
+// [x] jmp0(cmp %rex; jmp0 [addr]);
+// [x] jmpn0(reverse of jmp0)
 // [x] addrI(mov %rex, addr);
 // [x] addrD(mov %rex, [addr]);
 // [x] set(mov [addr], %rex);
@@ -136,6 +162,18 @@ fn(void, __x86_64_linux_machine_r8, i64 value, bytecode target) {
 fn(void, __x86_64_linux_machine_r9, i64 value, bytecode target) {
     push(target, 0x49, mem);
     push(target, 0xb9, mem);
+    __x86_64_linux_machine_emit_qword(value, target, mem);
+}
+
+fn(void, __x86_64_linux_machine_r11, i64 value, bytecode target) {
+    push(target, 0x49, mem);
+    push(target, 0xbb, mem);
+    __x86_64_linux_machine_emit_qword(value, target, mem);
+}
+
+fn(void, __x86_64_linux_machine_r13, i64 value, bytecode target) {
+    push(target, 0x49, mem);
+    push(target, 0xbd, mem);
     __x86_64_linux_machine_emit_qword(value, target, mem);
 }
 
@@ -251,9 +289,9 @@ fn(void, __x86_64_linux_machine_jmp0, i64 where, bytecode target, indexes replac
     push(target, 0x45, mem);
     push(target, 0xd9, mem);
 
-    // jmp rbx
+    // call rbx
     push(target, 0xff, mem);
-    push(target, 0xe3, mem);
+    push(target, 0xd3, mem);
 
     struct Pointer rcx_dex = { .put_in = rcx_place, .value = target->size };
     push(replace_pointers, rcx_dex, mem);
@@ -270,7 +308,7 @@ fn(void, __x86_64_linux_machine_call, i64 where, bytecode target, indexes replac
     push(target, 0xff, mem);
     push(target, 0xd3, mem);
 
-    struct Pointer rbx_dex = { .put_in = rbx_place, .value = where };
+    struct Pointer rbx_dex = { .put_in = rbx_place, .value = where + 1 };
     push(replace_pointers, rbx_dex, mem);
 }
 
@@ -295,8 +333,9 @@ fn(void, __x86_64_linux_machine_jmpn0, i64 where, bytecode target, indexes repla
     push(target, 0x44, mem);
     push(target, 0xd9, mem);
 
+    // call rbx
     push(target, 0xff, mem);
-    push(target, 0xe3, mem);
+    push(target, 0xd3, mem);
 
     struct Pointer rcx_dex = { .put_in = rcx_place, .value = target->size };
     push(replace_pointers, rcx_dex, mem);
@@ -342,8 +381,121 @@ fn(void, __x86_64_linux_machine_munmap, bytecode target) {
     // machine_esi(size, target, mem);
 }
 
-fn(void, __x86_64_linux_machine_push_rdi, bytecode target) { push(target, 0x57, mem); }
-fn(void, __x86_64_linux_machine_pop_rdi, bytecode target) { push(target, 0x5f, mem); }
+fn(void, __x86_64_linux_machine_int3, bytecode target) {
+    return;
+    push(target, 0xcd, mem);
+    push(target, 0x03, mem);
+}
+
+fn(void, __x86_64_linux_machine_push_rdi, struct x86_64_linux_env *environment) {
+    var target = environment->target;
+
+    __x86_64_linux_machine_int3(target, mem);
+    // mov r10, stack_ptr
+    __x86_64_linux_machine_r10((uint64_t) environment->stack, target, mem);
+    // cmp r11, 0
+    push(target, 0x49, mem);
+    push(target, 0x83, mem);
+    push(target, 0xfb, mem);
+    push(target, 0x00, mem);
+    // cmovl r11, r10
+    push(target, 0x4d, mem);
+    push(target, 0x0f, mem);
+    push(target, 0x4c, mem);
+    push(target, 0xda, mem);
+    // mov [r10 + r11 * 8], rdi
+    push(target, 0x4b, mem);
+    push(target, 0x89, mem);
+    push(target, 0x3c, mem);
+    push(target, 0xda, mem);
+    // dec r11
+    push(target, 0x49, mem);
+    push(target, 0xff, mem);
+    push(target, 0xcb, mem);
+}
+
+fn(void, __x86_64_linux_machine_pop_rdi, struct x86_64_linux_env *environment) {
+    var target = environment->target;
+
+    __x86_64_linux_machine_int3(target, mem);
+    // mov r10, stack_ptr
+    __x86_64_linux_machine_r10((uint64_t) environment->stack, target, mem);
+    // cmp r11, STACK_SIZE
+    push(target, 0x49, mem);
+    push(target, 0x81, mem);
+    push(target, 0xfb, mem);
+    __x86_64_linux_machine_emit_dword(STACK_SIZE, target, mem);
+    // cmovg r11, r10
+    push(target, 0x4d, mem);
+    push(target, 0x0f, mem);
+    push(target, 0x4f, mem);
+    push(target, 0xda, mem);
+    // mov rdi, [r10 + r11 * 8]
+    push(target, 0x4b, mem);
+    push(target, 0x8b, mem);
+    push(target, 0x3c, mem);
+    push(target, 0xda, mem);
+    // inc r11
+    push(target, 0x49, mem);
+    push(target, 0xff, mem);
+    push(target, 0xc3, mem);
+}
+
+fn(void, __x86_64_linux_machine_push_restore_r11, struct x86_64_linux_env *environment) {
+    var target = environment->target;
+
+    __x86_64_linux_machine_int3(target, mem);
+    // mov r10, stack_ptr
+    __x86_64_linux_machine_r10((uint64_t) environment->restore_stack, target, mem);
+    // cmp r13, 0
+    push(target, 0x49, mem);
+    push(target, 0x83, mem);
+    push(target, 0xfd, mem);
+    push(target, 0x00, mem);
+    // cmovl r13, r10
+    push(target, 0x4d, mem);
+    push(target, 0x0f, mem);
+    push(target, 0x4c, mem);
+    push(target, 0xea, mem);
+    // mov [r10 + r13 * 8], rdi
+    push(target, 0x4f, mem);
+    push(target, 0x89, mem);
+    push(target, 0x3c, mem);
+    push(target, 0xea, mem);
+    // dec r13
+    push(target, 0x49, mem);
+    push(target, 0xff, mem);
+    push(target, 0xcd, mem);
+}
+
+fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *environment) {
+    var target = environment->target;
+
+    __x86_64_linux_machine_int3(target, mem);
+    // mov r10, stack_ptr
+    __x86_64_linux_machine_r10((uint64_t) environment->restore_stack, target, mem);
+    // cmp r13, RESTORE_STACK_SIZE
+    push(target, 0x49, mem);
+    push(target, 0x81, mem);
+    push(target, 0xfd, mem);
+    __x86_64_linux_machine_emit_dword(RESTORE_STACK_SIZE, target, mem);
+    // cmovg r13, r10
+    push(target, 0x4d, mem);
+    push(target, 0x0f, mem);
+    push(target, 0x4f, mem);
+    push(target, 0xea, mem);
+    // mov rdi, [r10 + r11 * 8]
+    push(target, 0x4f, mem);
+    push(target, 0x8b, mem);
+    push(target, 0x3c, mem);
+    push(target, 0xea, mem);
+    // inc r11
+    push(target, 0x49, mem);
+    push(target, 0xff, mem);
+    push(target, 0xc5, mem);
+}
+
+fn(void, __x86_64_linux_machine_nop, bytecode target) { push(target, 0x90, mem); }
 
 // Steps:
 // 1. [x] Figure out ELF
@@ -355,7 +507,11 @@ fn(void, __x86_64_linux_machine_pop_rdi, bytecode target) { push(target, 0x5f, m
 // x86 This process is REQUIRED for addrI, addrD, jmp0, jmpn0, call, ret, set, pop and push
 
 // RET
-fn(void, __x86_64_linux_machine_ret, bytecode target) { push(target, 0xc3, mem); }
+fn(void, __x86_64_linux_machine_ret, void *_environment, byte restore_state) {
+    var environment = (x86_64_linux_env) _environment;
+    if (restore_state) __x86_64_linux_machine_pop_restore_r11(environment, mem);
+    push(environment->target, 0xc3, mem);
+}
 
 // Function to initialize and return an ELF header
 Elf64_Ehdr __x86_64_linux_create_elf_header() {
@@ -407,7 +563,7 @@ fn(void, __x86_64_linux_machine_elf, bytecode target) {
 void __x86_64_linux_print_bytecode(i64 size, byte *target) {
     for (size_t i = 0; i < size; ++i) {
         printf("%02x ", target[ i ]);
-        if (i % 8 == 7 && i > 0) printf("\n");
+        if (i % 16 == 15 && i > 0) printf("\n");
     }
     printf("\n");
 }
@@ -428,6 +584,22 @@ i64 __x86_64_linux_get_rax_value() {
     return rax_value;
 }
 
+i64 __x86_64_linux_get_r13_value() {
+    i64 r13_value;
+
+    __asm__("mov %%r13, %0" : "=r"(r13_value) : : "%rax");
+
+    return r13_value;
+}
+
+i64 __x86_64_linux_get_stack_value() {
+    i64 r13_value;
+
+    __asm__("mov %%rsp, %0" : "=r"(r13_value) : : "%rax");
+
+    return r13_value;
+}
+
 i64 __x86_64_linux_get_rdi_value() {
     i64 rdi_value;
 
@@ -445,39 +617,20 @@ i64 __x86_64_linux_get_rdx_value() {
 }
 
 fn(void, __x86_64_linux_insert_ptr_space, IR ir, bytecode target) {
+    printf("Needs: %li\n", ir.compiler_data.reserves->size);
     for (i32 i = 0; i < ir.compiler_data.reserves->size; i++) { extend((void *) target, 8, mem); }
 }
 
 void __x86_64_linux_replace_bytecode_pointers(
-    byte *target, i64 function_offset, i64 st_st_target, indexes pointers, byte symbolic) {
+    byte *target, i64 function_offset, indexes pointers, byte symbolic) {
     var destination = &target[ -function_offset ];
     for (i64 i = 0; i < pointers->size; i++) {
         var addr = (i64 *) (&destination[ pointers->array[ i ].put_in ]);
         // ADD `destination + ` BACK IN
-        *addr = (i64) (symbolic ? 0 : destination) + pointers->array[ i ].value + st_st_target;
+        *addr = (i64) (symbolic ? ((byte *) -function_offset - 1) : (destination - 1))
+                + pointers->array[ i ].value;
     }
 }
-
-struct block_loc {
-    i64 alan_name;
-    i64 actual_address;
-};
-
-typedef struct x86_64_linux_env {
-    A(struct block_loc) * block_locations;
-    indexes  replace_pointers;
-    bytecode target;
-    IR       ir;
-
-    i64 st_st_target;
-    i64 func_start;
-    i64 put_main;
-
-    i64 main_segment; // SET AFTER INIT
-    i64 allocator;    // SET AFTER INIT
-
-    i64 stack_diff;
-} *x86_64_linux_env;
 
 fn(void, x86_64_linux_useless, void *_environment) {
     sdebug(useless);
@@ -493,12 +646,17 @@ fn(void *, x86_64_linux_create_env, IR ir) {
     env->target           = (bytecode) ret(char, 0);
     env->replace_pointers = (indexes) ret(struct Pointer, 0);
 
-    env->st_st_target = env->target->size;
     __x86_64_linux_insert_ptr_space(ir, env->target, mem);
 
     env->func_start = env->target->size;
 
     env->allocator = 0;
+
+    env->stack = alloc(mem, STACK_SIZE);
+    __x86_64_linux_machine_r11(0, env->target, mem);
+
+    env->restore_stack = alloc(mem, RESTORE_STACK_SIZE);
+    __x86_64_linux_machine_r13(0, env->target, mem);
 
     env->put_main = env->target->size + 2;
     __x86_64_linux_machine_rbx(0, env->target, mem);
@@ -510,18 +668,44 @@ fn(void *, x86_64_linux_create_env, IR ir) {
     return env;
 }
 
+void me_bug() {
+    var r13       = __x86_64_linux_get_r13_value();
+    var stack_ptr = __x86_64_linux_get_stack_value();
+    printf("Called %p stack ptr %li\n", (void *) r13, stack_ptr);
+    return;
+}
+
+fn(void, x86_64_linux_debug, void *_environment) {
+    return;
+    var environment = (x86_64_linux_env) _environment;
+    var target      = environment->target;
+
+    var ptr = target->size - environment->func_start;
+    push(target, 0x49, mem);
+    push(target, 0xbd, mem);
+    __x86_64_linux_machine_emit_qword((uint64_t) ptr, target, mem);
+    push(target, 0x49, mem);
+    push(target, 0xbb, mem);
+    __x86_64_linux_machine_emit_qword((uint64_t) me_bug, target, mem);
+    push(target, 0x41, mem);
+    push(target, 0xff, mem);
+    push(target, 0xd3, mem);
+}
+
 fn(void, x86_64_linux_pop_to_tmp, void *_environment) {
     sdebug(pop tmp);
     var environment = (x86_64_linux_env) _environment;
     environment->stack_diff--;
-    __x86_64_linux_machine_pop_rdi(environment->target, mem);
+    __x86_64_linux_machine_pop_rdi(environment, mem);
+
+    x86_64_linux_debug(environment, mem);
 }
 
 fn(void, x86_64_linux_push_from_tmp, void *_environment) {
     sdebug(push tmp);
     var environment = (x86_64_linux_env) _environment;
     environment->stack_diff++;
-    __x86_64_linux_machine_push_rdi(environment->target, mem);
+    __x86_64_linux_machine_push_rdi(environment, mem);
 }
 
 fn(void, x86_64_linux_ret, void *_environment) {
@@ -534,13 +718,13 @@ fn(void, x86_64_linux_ret, void *_environment) {
     // us
     // 3. Return the address we need in it
     // This is faster and more efficient than cloning the entire array in the top arena
-    __x86_64_linux_machine_ret(environment->target, mem);
+    __x86_64_linux_machine_ret(environment, 1, mem);
 }
 
 fn(void, x86_64_linux_dryback, void *_environment) {
     sdebug(dryback);
     var environment = (x86_64_linux_env) _environment;
-    __x86_64_linux_machine_ret(environment->target, mem);
+    __x86_64_linux_machine_ret(environment, 1, mem);
 }
 
 fn(void, x86_64_linux_const_to_tmp, i64 value, void *_environment) {
@@ -609,7 +793,14 @@ fn(void, x86_64_linux_create_block, i64 name, IR ir, void *_environment) {
     var target           = environment->target;
     var replace_pointers = environment->replace_pointers;
 
-    if (environment->block_locations->size > 0) __x86_64_linux_machine_ret(target, mem);
+    // for (i64 i = 0; i < environment->stack_diff; i++) {
+    //     __x86_64_linux_machine_pop_rdi(target, mem);
+    // }
+    // environment->stack_diff = 0;
+
+    if (environment->block_locations->size > 0 && target->array[ target->size - 1 ] != 0xc3)
+        __x86_64_linux_machine_ret(environment, 0, mem);
+    __x86_64_linux_machine_nop(target, mem);
 
     var location = (struct block_loc) { .actual_address = target->size, .alan_name = name };
     push(environment->block_locations, location, mem);
@@ -633,18 +824,11 @@ fn(void, x86_64_linux_create_block, i64 name, IR ir, void *_environment) {
     if (ir.segments->array[ name ].name == 1) {
         var cur                   = target->size;
         environment->main_segment = cur;
-        // var ptr                   = &environment->target->array[ environment->put_main ];
-        // ptr[ 0 ]                  = cur & 0xff;
-        // ptr[ 1 ]                  = (cur >> 8) & 0xff;
-        // ptr[ 2 ]                  = (cur >> 16) & 0xff;
-        // ptr[ 3 ]                  = (cur >> 24) & 0xff;
-        // ptr[ 4 ]                  = (cur >> 32) & 0xff;
-        // ptr[ 5 ]                  = (cur >> 40) & 0xff;
-        // ptr[ 6 ]                  = (cur >> 48) & 0xff;
-        // ptr[ 7 ]                  = (cur >> 56) & 0xff;
 
-        struct Pointer rbx_dex = { .put_in = environment->put_main, .value = cur - 1 };
+        struct Pointer rbx_dex = { .put_in = environment->put_main, .value = cur };
         push(replace_pointers, rbx_dex, mem);
+    } else {
+        __x86_64_linux_machine_push_restore_r11(environment, mem);
     }
 }
 
@@ -660,13 +844,13 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
     var string_name = my_name < 0 ? "block" : ir.compiler_data.context->symbols->array[ my_name ];
 
     if (strcmp(string_name, "mmap") == 0) {
-        __x86_64_linux_machine_pop_rdi(target, mem);
+        __x86_64_linux_machine_pop_rdi(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
 
         __x86_64_linux_machine_mmap(target, mem);
         __x86_64_linux_machine_syscall(target, mem);
     } else if (strcmp(string_name, "munmap") == 0) {
-        __x86_64_linux_machine_pop_rdi(target, mem);
+        __x86_64_linux_machine_pop_rdi(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
         __x86_64_linux_machine_munmap(target, mem);
         __x86_64_linux_machine_syscall(target, mem);
@@ -699,51 +883,48 @@ fn(void, x86_64_linux_finish, void *_environment) {
     var target           = environment->target;
     var replace_pointers = environment->replace_pointers;
 
-    __x86_64_linux_machine_ret(target, mem);
+    __x86_64_linux_machine_ret(environment, 0, mem);
 
     var function_pointer
         = __x86_64_linux_get_exec(target->array, environment->func_start, target->size);
 
     __x86_64_linux_replace_bytecode_pointers(
-        (byte *) function_pointer,
-        environment->func_start,
-        environment->st_st_target,
-        replace_pointers,
-        1);
+        (byte *) function_pointer, environment->func_start, replace_pointers, 1);
 
+    // -- Uncomment these to write the x86 output to a file allowing for easier debugging --
     var fd = fopen("out/x86_64_linux_dump_symbolic.bin", "w");
     fwrite(function_pointer, target->size - environment->func_start, 1, fd);
     fclose(fd);
 
     __x86_64_linux_replace_bytecode_pointers(
-        (byte *) function_pointer,
-        environment->func_start,
-        environment->st_st_target,
-        replace_pointers,
-        0);
+        (byte *) function_pointer, environment->func_start, replace_pointers, 0);
 
-    // -- Uncomment these to write the x86 output to a file allowing for easier debugging --
     fd = fopen("out/x86_64_linux_dump.bin", "w");
     fwrite(function_pointer, target->size - environment->func_start, 1, fd);
     fclose(fd);
 
-    __x86_64_linux_print_bytecode(target->size, target->array);
+    system("ndisasm -b 64 out/x86_64_linux_dump.bin");
     printf("\n");
-    __x86_64_linux_print_bytecode(target->size - environment->func_start, (void*)function_pointer);
-    printf("\n");
-
     system("ndisasm -b 64 out/x86_64_linux_dump_symbolic.bin | " awk_patch);
-    // system("ndisasm -b 64 out/x86_64_linux_dump_symbolic.bin | " awk_patch);
-    system("ndisasm -b 64 out/x86_64_linux_dump.bin | " awk_patch " > out/x86_64_linux_dump.asm");
+    fd = fopen("out/x86_64_linux_dump.asm", "w");
+    fprintf(fd, "; start: %p\n", function_pointer);
+    fclose(fd);
+    system("ndisasm -b 64 out/x86_64_linux_dump.bin | " awk_patch " >> out/x86_64_linux_dump.asm");
     system("ndisasm -b 64 out/x86_64_linux_dump_symbolic.bin | " awk_patch
            " > out/x86_64_linux_dump_symbolic.asm");
 
-    printf("PLACE: %p\n", function_pointer);
+    printf("\n");
+    printf("STACK: %p\n", environment->stack);
+    printf("PLACE: %p\n\n", function_pointer);
     function_pointer();
-    var rax = (byte*)__x86_64_linux_get_rdi_value();
-    __x86_64_linux_print_bytecode(target->size, target->array);
-    printf("RDI %p\n", rax);
-    *rax = 2;
+    // __x86_64_linux_machine_pop_rdi(environment, mem);
+    var rdi = (byte *) __x86_64_linux_get_rdi_value();
+    // __x86_64_linux_print_bytecode(target->size, target->array);
+    __x86_64_linux_print_bytecode(
+        target->size, (void *) &((byte*)function_pointer)[-environment->func_start]);
+    printf("\n");
+    printf("RDI %p\n", rdi);
+    *rdi = 2;
     printf("WOW\n");
 }
 
@@ -801,7 +982,8 @@ scribe get_scribe_x86_64_linux() {
                         .set        = x86_64_linux_addr_set_addr_to_tmp,
                         .block      = x86_64_linux_create_block,
                         .call       = x86_64_linux_call,
-                        .finish     = x86_64_linux_finish
+                        .cycle  = x86_64_linux_useless, // i don't have a use for this as of now...
+                        .finish = x86_64_linux_finish
     };
 
     return me;

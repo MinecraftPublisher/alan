@@ -1,0 +1,1 @@
+set val [ mmap 32 ];
