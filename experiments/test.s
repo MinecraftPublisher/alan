@@ -22,20 +22,33 @@ bits 64
 %define stack_ptr 0x1122334455667788
 %define stack_size 8192
 
-_push:
-    mov r10, stack_ptr
-    cmp r13, 0
-    cmovl r13, r10
-    mov [r10 + r13 * 8], rdi
-    dec r13
-
-_pop:
+_push_restore:
     mov r10, stack_ptr
     cmp r13, stack_size
     cmovg r13, r10
-    mov rdi, [r10 + r13 * 8]
+    mov [r10 + r13 * 8], rdi
     inc r13
-    int 3
+
+_pop_restore:
+    mov r10, stack_ptr
+    dec r13
+    cmp r13, 0
+    cmovl r13, r10
+    mov rdi, [r10 + r13 * 8]
+
+_push:
+    mov r10, stack_ptr
+    cmp r11, stack_size
+    cmovg r11, r10
+    mov [r10 + r11 * 8], rdi
+    inc r11
+
+_pop:
+    mov r10, stack_ptr
+    dec r11
+    cmp r11, 0
+    cmovl r11, r10
+    mov rdi, [r10 + r11 * 8]
 
 _start:
     mov r13, 0

@@ -1,6 +1,6 @@
 all: clean build count measure
 
-FILE = src/self/test.al
+FILE = src/self/allocator.al
 MAIN_SRC = src/alan.c
 OUTPUT_FOLDER = out/
 OUTPUT_FILE = alan
