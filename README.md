@@ -1,18 +1,31 @@
 # Alan - Array Language
-This is a simple compiler for a [memory-safe] programming language where everything (even numbers) are arrays. It is very primitive, and reading the `template.c` file gives you a way better understanding of the built-in functions.
+This is a simple compiler for a [memory-safe] programming language where everything (even numbers) are arrays. It is very primitive, but it is turing complete.
 
-It is turing-complete, but:
-- The C version is not fully usable yet
-- The typescript version is outdated and it requires most commonly used utilities to be written using C interfacing, or written directly into the C templating. An updating including a proper guide and an stdlib alongside troubleshooting coming soon.
+## C version
+This is a work-in-progress compiler (with a self-estimation of around 90% completion), which __does not use any external dependencies__. Not even an assembler, I wrote the machine code output functions by hand, all by myself. The C compiler uses no external libraries but the standard libc. It takes alan code, parses it, optimizes it, error checks it, converts it into semi-assembly code using IR techniques, then it converts the IR code into x86 machine code that can be ran in C like this:
+```c
+// ...
+mc function_pointer = __x86_64_linux_get_exec(target->array, environment->func_start, target->size);
+// ...
+function_pointer();
+```
+with no errors. That's right, the compiled program creates a function for you to run in your code. This means I can even integrate this compiler into my future projects and use it just like you would use an interpreted language, with the difference of the code being actually compiled.
+
+## Fun facts!
+- **The code that the compiler produces is actually less code than writing the same program in C. Yes, you heard that right!**
+- The name wasn't originally supposed to be a reference to Alan Turing, but later on I realized the correlation.
+- The static analyzer is called the Inspector. Why? I don't know, I didn't want to just call it "Static Analyzer". That would be boring. The parser is called Librarian, the intermediate representation generator is called Tourist, and the executable generators are called Scribes.
 
 ## Updates
 - Update 1.p3C: Static analyzer is now improved, and the compiler can (sloppily) target x86-64 direct bytecode output for linux, but only as JIT.
 - Update 1.p2C: Created and improved the C parser + static analyzer. The end goal is compiling programs directly to x86_64 machine code as an executable.
 - Update 1.p1: Added literal unrolling and caching, optimized function calls and reduced dereference count. The compiled executable now runs about ***100x*** faster!
 
-## Fun facts
-- The name wasn't originally supposed to be a reference to Alan Turing, but later on I realized the correlation.
-- The static analyzer is called the Inspector. Why? I don't know, I didn't want to just call it "Static Analyzer". That would be boring. The parser is called Librarian, the intermediate representation generator is called Tourist, and the executable generators are called Scribes.
+---
+
+Bad news (yes I hid this over here):
+- The C version is not fully usable yet (however it does produce direct x86 output!)
+- The typescript version is outdated and it requires most commonly used utilities to be written using C interfacing, or written directly into the C templating. An updating including a proper guide and an stdlib alongside troubleshooting coming soon.
 
 ---
 
