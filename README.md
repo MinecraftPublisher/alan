@@ -1,6 +1,11 @@
 # Alan - Array Language
 This is a simple compiler for a [memory-safe] programming language where everything (even numbers) are arrays. It is very primitive, but it is turing complete.
 
+**Note**: I really can't provide an online demo or a screen recording for this. However, it should be fairly easy to clone and compile this with minimal effort. The demo image below is the closest I could get to a real demo (below the image is the explanation):
+
+![Demo image.](https://iili.io/2U8iCnR.jpg)
+>Figure A out of A: Top left shows input alan code. The rest of the left side is the disassembled machine code of the program. Top right is the intermediate representation of the program, and bottom right is the compiled machine code output of the program.
+
 ## C version
 This is a work-in-progress compiler (with a self-estimation of around 90% completion), which __does not use any external dependencies__. Not even an assembler, I wrote the machine code output functions by hand, all by myself. The C compiler uses no external libraries but the standard libc. It takes alan code, parses it, optimizes it, error checks it, converts it into semi-assembly code using IR techniques, then it converts the IR code into x86 machine code that can be ran in C like this:
 ```c
