@@ -75,14 +75,17 @@ byte suggestions = 1;
 // USED FOR LANGUAGE DEVELOPMENT
 struct standard_entry stdlib[] = {
     // Internals
-    { .name = "mmap", .args = 1, .types = { -1 }, .ret = -1 },    //
-    { .name = "munmap", .args = 1, .types = { -1 }, .ret = 0 },   //
-    { .name = "deref", .args = 1, .types = { -1 }, .ret = 0 },    // Dereferences a pointer, and places it into TMP.
-    { .name = "dryback", .args = 1, .types = { 0 }, .ret = 3 },   //
-    { .name = "arg", .args = 2, .types = { 0, 0 }, .ret = 3 },    //
-    { .name = "if", .args = 2, .types = { 0, 2 }, .ret = 3 },     //
-    { .name = "unless", .args = 2, .types = { 0, 2 }, .ret = 3 }, //
-    { .name = "while", .args = 2, .types = { 0, 2 }, .ret = 3 },  //
+    { .name = "mmap", .args = 1, .types = { -1 }, .ret = -1 },      //
+    { .name = "munmap", .args = 2, .types = { -1, -1 }, .ret = 0 }, //
+    { .name = "tmp", .args = 1, .types = { 0 }, .ret = 0 },         //
+    // Dereferences a pointer, and places it into TMP.
+    { .name = "getp", .args = 1, .types = { -1 }, .ret = -1 },      //
+    { .name = "setp", .args = 2, .types = { -1, -1 }, .ret = 0 }, //
+    { .name = "dryback", .args = 1, .types = { 0 }, .ret = 3 },     //
+    { .name = "arg", .args = 2, .types = { 0, 0 }, .ret = 3 },      //
+    { .name = "if", .args = 2, .types = { 0, 2 }, .ret = 3 },       //
+    { .name = "unless", .args = 2, .types = { 0, 2 }, .ret = 3 },   //
+    { .name = "while", .args = 2, .types = { 0, 2 }, .ret = 3 },    //
     // Arithmetic and logic
     // TODO: Add higher number arithmetics
     { .name = "add", .args = 2, .types = { -1, -1 }, .ret = -1 },
@@ -93,6 +96,7 @@ struct standard_entry stdlib[] = {
     { .name = "or", .args = 2, .types = { -1, -1 }, .ret = -1 },     //
     { .name = "not", .args = 1, .types = { -1 }, .ret = -1 },        //
     { .name = "inc", .args = 1, .types = { -1 }, .ret = -1 },        //
+    { .name = "inctmp", .args = 0, .types = {}, .ret = -1 },         //
     { .name = "dec", .args = 1, .types = { -1 }, .ret = -1 },        //
     { .name = "cmp_gt", .args = 2, .types = { -1, -1 }, .ret = -1 }, //
     { .name = "cmp_lt", .args = 2, .types = { -1, -1 }, .ret = -1 }, //

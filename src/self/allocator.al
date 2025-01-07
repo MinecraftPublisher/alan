@@ -1,27 +1,26 @@
-# Memory layout:
-# First item will be the 'initialized? value
-# Second item will be the block count
-# From then on it will be the addresses to different blocks
+# Proposed syntax:
+# let ptr = mmap 32;
 
-# type allocate_storage = Array[Array[Block]]
-# type Block = [  ]
+set area_size 4096;
 
-num alloc_data 0;
+set main_area 0;
+set initialized 0;
+set filled 0;
 
-fn num unsafe_allocate [
-    # Should return a pointer
-    
+fn num alloc_experiment [
     arg num size;
 
-    set pointer [ mmap size ];
+    # mmap memory
+    if [ not initialized ] [
+        set main_area [ mmap area_size ];
+        set initialized 25;
+    ];
 
-    dryback pointer;
+    set ptr [ add main_area filled ];
+    set filled [ add filled size ];
+
+    dryback main_area;
 ];
 
-fn void unsafe_free [
-    arg num ptr;
-    munmap ptr;
-];
-
-set alloc_data [ unsafe_allocate 32 ];
-unsafe_free alloc_data;
+alloc_experiment 100;
+tmp main_area;

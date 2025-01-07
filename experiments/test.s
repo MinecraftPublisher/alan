@@ -51,7 +51,6 @@ _pop:
     mov rdi, [r10 + r11 * 8]
 
 _start:
-    mov r13, 0
-    mov r13, 0
+    add rdi, rsi
 
     exit(0)

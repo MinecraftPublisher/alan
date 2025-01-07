@@ -6,6 +6,10 @@
 
 #include "template.c"
 
+//
+
+#include <stdint.h>
+
 typedef A(byte) * bytecode;
 
 struct Pointer {
@@ -29,6 +33,7 @@ typedef struct x86_64_linux_env {
 
     i64 func_start;
     i64 put_main;
+    i64 jump_after;
 
     i64 main_segment; // SET AFTER INIT
     i64 allocator;    // SET AFTER INIT
@@ -142,6 +147,12 @@ fn(void, __x86_64_linux_machine_rdi, i64 value, bytecode target) {
     __x86_64_linux_machine_emit_qword(value, target, mem);
 }
 
+fn(void, __x86_64_linux_machine_rdi_short, i32 value, bytecode target) {
+    // __x86_64_linux_machine_int3(target, mem);
+    push(target, 0xbf, mem);
+    __x86_64_linux_machine_emit_dword(value, target, mem);
+}
+
 fn(void, __x86_64_linux_machine_rsi, i64 value, bytecode target) {
     push(target, 0x48, mem);
     push(target, 0xbe, mem);
@@ -220,12 +231,36 @@ fn(void, __x86_64_linux_machine_rdi_in_ptr, i64 ptr, bytecode target, indexes re
 }
 
 fn(void, __x86_64_linux_machine_ptr_in_rdi, i64 ptr, bytecode target, indexes replace_pointers) {
+    ground();
+
+    // If previous instruction is a push, just remove it and don't add this one.
+    var simulated_push = (bytecode) new (byte, 0);
+    var env            = new (struct x86_64_linux_env);
+    var rep_ptrs       = (indexes) new (struct Pointer, 0);
+    env->target        = simulated_push;
+    __x86_64_linux_machine_rdi_in_ptr(ptr, env->target, rep_ptrs, scratch);
+
+    if (target->size > env->target->size) {
+        if (strncmp(
+                (char *) env->target->array,
+                (char *) &target->array[ -env->target->size ],
+                env->target->size)
+            == 0) {
+            release();
+            return;
+        }
+    } else {
+        release();
+    }
+
     struct Pointer our_index = { .put_in = target->size + 2, .value = ptr * 8 };
     push(replace_pointers, our_index, mem);
     __x86_64_linux_machine_rdi(0x0, target, mem);
     push(target, 0x48, mem);
     push(target, 0x8b, mem);
     push(target, 0x3f, mem);
+
+    release();
 }
 
 fn(void, __x86_64_linux_machine_syscall, bytecode target) {
@@ -427,14 +462,19 @@ fn(void, __x86_64_linux_machine_pop_rdi, struct x86_64_linux_env *environment) {
     env->stack         = environment->stack;
     __x86_64_linux_machine_push_rdi(env, scratch);
 
-    if (strncmp(
-            (char *) env->target->array,
-            (char *) &target->array[ -env->target->size ],
-            env->target->size)
-        == 0) {
-        extend((Array) target, -env->target->size, mem);
+    if (target->size > env->target->size) {
+        if (strncmp(
+                (char *) env->target->array,
+                (char *) &target->array[ -env->target->size ],
+                env->target->size)
+            == 0) {
+            // printf("Ext fuckup %li\n", env->target->size);
+            extend((Array) target, -env->target->size, mem);
+            release();
+            return;
+        }
+    } else {
         release();
-        return;
     }
 
     // __x86_64_linux_machine_int3(target, mem);
@@ -501,14 +541,18 @@ fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *enviro
     env->stack         = environment->stack;
     __x86_64_linux_machine_push_restore_r11(env, scratch);
 
-    if (strncmp(
-            (char *) env->target->array,
-            (char *) &target->array[ -env->target->size ],
-            env->target->size)
-        == 0) {
-        extend((Array) target, -env->target->size, mem);
+    if (environment->target->size > env->target->size) {
+        if (strncmp(
+                (char *) env->target->array,
+                (char *) &target->array[ -env->target->size ],
+                env->target->size)
+            == 0) {
+            extend((Array) target, -env->target->size, mem);
+            release();
+            return;
+        }
+    } else {
         release();
-        return;
     }
 
     // __x86_64_linux_machine_int3(target, mem);
@@ -528,10 +572,10 @@ fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *enviro
     push(target, 0x0f, mem);
     push(target, 0x4c, mem);
     push(target, 0xea, mem);
-    // mov rdi, [r10 + r13 * 8]
-    push(target, 0x4b, mem);
+    // mov r13, [r10 + r13 * 8]
+    push(target, 0x4f, mem);
     push(target, 0x8b, mem);
-    push(target, 0x3c, mem);
+    push(target, 0x2c, mem);
     push(target, 0xea, mem);
 
     release();
@@ -602,10 +646,11 @@ fn(void, __x86_64_linux_machine_elf, bytecode target) {
     }
 }
 
+#define COLUMNS 8
 void __x86_64_linux_print_bytecode(i64 size, byte *target) {
     for (size_t i = 0; i < size; ++i) {
         printf("%02x ", target[ i ]);
-        if (i % 16 == 15 && i > 0) printf("\n");
+        if (i % (COLUMNS) == (COLUMNS - 1) && i > 0) printf("\n");
     }
     printf("\n");
 }
@@ -687,6 +732,7 @@ fn(void *, x86_64_linux_create_env, IR ir) {
     env->block_locations  = (void *) ret(struct block_loc, 0);
     env->target           = (bytecode) ret(char, 0);
     env->replace_pointers = (indexes) ret(struct Pointer, 0);
+    env->ir               = ir;
 
     __x86_64_linux_insert_ptr_space(ir, env->target, mem);
 
@@ -695,10 +741,10 @@ fn(void *, x86_64_linux_create_env, IR ir) {
     env->allocator = 0;
 
     env->stack = alloc(mem, STACK_SIZE * 8);
-    __x86_64_linux_machine_r11(0x0, env->target, mem);
+    // __x86_64_linux_machine_r11(0x0, env->target, mem);
 
     env->restore_stack = alloc(mem, RESTORE_STACK_SIZE * 8);
-    __x86_64_linux_machine_r13(0x0, env->target, mem);
+    // __x86_64_linux_machine_r13(0x0, env->target, mem);
 
     env->put_main = env->target->size + 2;
     __x86_64_linux_machine_rbx(0, env->target, mem);
@@ -706,6 +752,8 @@ fn(void *, x86_64_linux_create_env, IR ir) {
     // jmp rbx (main segment)
     push(env->target, 0xff, mem);
     push(env->target, 0xe3, mem);
+
+    env->jump_after = env->target->size;
 
     return env;
 }
@@ -772,7 +820,11 @@ fn(void, x86_64_linux_dryback, void *_environment) {
 fn(void, x86_64_linux_const_to_tmp, i64 value, void *_environment) {
     sdebug(const);
     var environment = (x86_64_linux_env) _environment;
+    // if (value < INT32_MAX) {
+    // __x86_64_linux_machine_rdi_short(value, environment->target, mem);
+    // } else {
     __x86_64_linux_machine_rdi(value, environment->target, mem);
+    // }
 }
 
 fn(void, x86_64_linux_jmp0, i64 where, void *_environment) {
@@ -816,29 +868,11 @@ fn(void, x86_64_linux_jmpn0, i64 where, void *_environment) {
 }
 
 fn(void, x86_64_linux_addr_deref_to_tmp, i64 addr, void *_environment) {
-    ground();
     sdebug(deref address);
     var environment = (x86_64_linux_env) _environment;
     var target      = environment->target;
 
-    // If previous instruction is a push, just remove it and don't add this one.
-    var simulated_push   = (bytecode) new (byte, 0);
-    var env              = new (struct x86_64_linux_env);
-    var replace_pointers = (indexes) new (struct Pointer, 0);
-    env->target          = simulated_push;
-    __x86_64_linux_machine_rdi_in_ptr(addr, env->target, replace_pointers, scratch);
-
-    if (strncmp(
-            (char *) env->target->array,
-            (char *) &target->array[ -env->target->size ],
-            env->target->size)
-        == 0) {
-        release();
-        return;
-    }
-
     __x86_64_linux_machine_ptr_in_rdi(addr, target, environment->replace_pointers, mem);
-    release();
 }
 
 fn(void, x86_64_linux_addr_set_addr_to_tmp, i64 addr, void *_environment) {
@@ -860,7 +894,7 @@ fn(void, x86_64_linux_create_block, i64 name, IR ir, void *_environment) {
     // environment->stack_diff = 0;
 
     if (environment->block_locations->size > 0 && target->array[ target->size - 1 ] != 0xc3)
-        __x86_64_linux_machine_ret(environment, 0, mem);
+        __x86_64_linux_machine_ret(environment, 1, mem);
     __x86_64_linux_machine_nop(target, mem);
 
     var location = (struct block_loc) { .actual_address = target->size, .alan_name = name };
@@ -911,12 +945,77 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
         __x86_64_linux_machine_mmap(target, mem);
         __x86_64_linux_machine_syscall(target, mem);
         __x86_64_linux_machine_rax_in_rdi(target, mem);
-    } else if (strcmp(string_name, "munmap") == 0) {
+    }
+
+    else if (strcmp(string_name, "munmap") == 0) {
         __x86_64_linux_machine_pop_rdi(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
+        __x86_64_linux_machine_pop_rdi(environment, mem);
+        // hotfix for swapping rdi and rsi
+        // xchg rdi, rsi
+        push(target, 0x48, mem);
+        push(target, 0x87, mem);
+        push(target, 0xfe, mem);
         __x86_64_linux_machine_munmap(target, mem);
         __x86_64_linux_machine_syscall(target, mem);
-    } else if (environment->allocator <= 0) {
+    }
+
+    else if (strcmp(string_name, "tmp") == 0) {
+        __x86_64_linux_machine_pop_rdi(environment, mem);
+    }
+
+    else if (strcmp(string_name, "add") == 0) {
+        // __x86_64_linux_machine_int3(target, mem);
+        __x86_64_linux_machine_pop_rdi(environment, mem);
+        __x86_64_linux_machine_rdi_in_rsi(target, mem);
+        __x86_64_linux_machine_pop_rdi(environment, mem);
+        push(target, 0x48, mem);
+        push(target, 0x01, mem);
+        push(target, 0xf7, mem);
+    }
+
+    else if (strcmp(string_name, "sub") == 0) {
+        __x86_64_linux_machine_pop_rdi(environment, mem);
+        __x86_64_linux_machine_rdi_in_rsi(target, mem);
+        __x86_64_linux_machine_pop_rdi(environment, mem);
+        push(target, 0x48, mem);
+        push(target, 0x29, mem);
+        push(target, 0xf7, mem);
+    }
+
+    else if (strcmp(string_name, "not") == 0) {
+        __x86_64_linux_machine_pop_rdi(environment, mem);
+        push(target, 0x48, mem);
+        push(target, 0xf8, mem);
+        push(target, 0xd7, mem);
+    }
+
+    else if (strcmp(string_name, "inctmp") == 0) {
+        // inc rdi
+        push(target, 0x48, mem);
+        push(target, 0xff, mem);
+        push(target, 0xc7, mem);
+    }
+
+    else if (strcmp(string_name, "getp") == 0) {
+        __x86_64_linux_machine_pop_rdi(environment, mem);
+        push(target, 0x48, mem);
+        push(target, 0x8b, mem);
+        push(target, 0x3f, mem);
+    }
+
+    else if (strcmp(string_name, "setp") == 0) {
+        // value
+        __x86_64_linux_machine_pop_rdi(environment, mem);
+        __x86_64_linux_machine_rdi_in_rsi(target, mem);
+        // address
+        __x86_64_linux_machine_pop_rdi(environment, mem);
+        push(target, 0x48, mem);
+        push(target, 0x89, mem);
+        push(target, 0x3e, mem);
+    }
+
+    else if (environment->allocator <= 0) {
         var loc = -1;
         for (i64 i = 0; i < environment->block_locations->size; i++) {
             var block = environment->block_locations->array[ i ];
@@ -929,11 +1028,18 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
             printf("Name: %lX\n", name);
             error(
                 scribe_error,
-                "I (x86_64_linux) was not able to find the given call destination."
+                "I (x86_64_linux) was not able to find the given call destination. "
                 "This should not be happening!");
         }
 
         __x86_64_linux_machine_call(loc, target, replace_pointers, mem);
+    }
+
+    else {
+        error(
+            scribe_error,
+            "The ALA (Alan Allocator) has not yet been defined. The feature you requested cannot "
+            "be compiled into the program.");
     }
 }
 
@@ -980,14 +1086,15 @@ fn(void, x86_64_linux_finish, void *_environment) {
     printf("PLACE: %p\n\n", function_pointer);
     function_pointer();
     // __x86_64_linux_machine_pop_rdi(environment, mem);
-    var rdi = (byte *) __x86_64_linux_get_rdi_value();
+    var rdi = (i64 *) __x86_64_linux_get_rdi_value();
     // __x86_64_linux_print_bytecode(target->size, target->array);
     __x86_64_linux_print_bytecode(
         target->size, (void *) &((byte *) function_pointer)[ -environment->func_start ]);
     printf("\n");
-    printf("RDI %p\n", rdi);
+    printf("rdi = %p\n", rdi);
     // *rdi = 2;
-    printf("WOW %li\n", target->size);
+    printf("size = %li\n", target->size);
+    // printf("*rdi = %li\n", *rdi);
 }
 
 fn(void, x86_64_linux_test_scribe, IR ir, void *_environment) {

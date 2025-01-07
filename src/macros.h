@@ -6,9 +6,9 @@
 #define cat(a, b)   p_cat(a, b)
 #define A(type)                                                                                    \
     struct {                                                                                       \
-        uint64_t   size;                                                                                \
-        i32   unit;                                                                                \
-        type *array;                                                                               \
+        uint64_t size;                                                                             \
+        i32      unit;                                                                             \
+        type    *array;                                                                            \
     }
 #define var __auto_type
 
@@ -41,6 +41,7 @@
 
 #define ARENA_SIZE_UNIT 8192
 
+// printf("%s", "push(" #arr ", " #data ", " #_mem ");\n");
 #define push(arr, data, _mem)                                                                      \
     ({                                                                                             \
         extend((void *) arr, 1, _mem);                                                             \
@@ -131,7 +132,7 @@
 #define pop_value "32"
 #define POS_ALIGN "\033[" pop_value "G" C_BRIGHT_BLACK
 
-#define min(a, b) ((a) < (b)) ? (a) : (b)
-#define max(a, b) ((a) < (b)) ? (b) : (a)
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+#define max(a, b) (((a) < (b)) ? (b) : (a))
 
 #define EI_NIDENT 16
