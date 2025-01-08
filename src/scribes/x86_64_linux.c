@@ -202,7 +202,7 @@ fn(void,
    bytecode       target,
    indexes        replace_pointers) {
     push(replace_pointers, ptr, mem);
-    __x86_64_linux_machine_rbx(0, target, mem);
+    __x86_64_linux_machine_rbx(ptr.value, target, mem);
 }
 
 fn(void, __x86_64_linux_machine_rax_in_ptr, i64 ptr, bytecode target, indexes replace_pointers) {
@@ -234,10 +234,10 @@ fn(void, __x86_64_linux_machine_ptr_in_rdi, i64 ptr, bytecode target, indexes re
     ground();
 
     // If previous instruction is a push, just remove it and don't add this one.
-    var simulated_push = (bytecode) new (byte, 0);
-    var env            = new (struct x86_64_linux_env);
-    var rep_ptrs       = (indexes) new (struct Pointer, 0);
-    env->target        = simulated_push;
+    var simulated_ptr = (bytecode) new (byte, 0);
+    var env           = new (struct x86_64_linux_env);
+    var rep_ptrs      = (indexes) new (struct Pointer, 0);
+    env->target       = simulated_ptr;
     __x86_64_linux_machine_rdi_in_ptr(ptr, env->target, rep_ptrs, scratch);
 
     if (target->size > env->target->size) {
@@ -468,7 +468,6 @@ fn(void, __x86_64_linux_machine_pop_rdi, struct x86_64_linux_env *environment) {
                 (char *) &target->array[ -env->target->size ],
                 env->target->size)
             == 0) {
-            // printf("Ext fuckup %li\n", env->target->size);
             extend((Array) target, -env->target->size, mem);
             release();
             return;
@@ -519,10 +518,10 @@ fn(void, __x86_64_linux_machine_push_restore_r11, struct x86_64_linux_env *envir
     push(target, 0x0f, mem);
     push(target, 0x4f, mem);
     push(target, 0xea, mem);
-    // mov rdi, [r10 + r13 * 8]
-    push(target, 0x4b, mem);
+    // mov [r10 + r13 * 8], r11
+    push(target, 0x4f, mem);
     push(target, 0x89, mem);
-    push(target, 0x3c, mem);
+    push(target, 0x1c, mem);
     push(target, 0xea, mem);
     // inc r13
     push(target, 0x49, mem);
@@ -541,7 +540,7 @@ fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *enviro
     env->stack         = environment->stack;
     __x86_64_linux_machine_push_restore_r11(env, scratch);
 
-    if (environment->target->size > env->target->size) {
+    if (target->size > env->target->size) {
         if (strncmp(
                 (char *) env->target->array,
                 (char *) &target->array[ -env->target->size ],
@@ -572,11 +571,16 @@ fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *enviro
     push(target, 0x0f, mem);
     push(target, 0x4c, mem);
     push(target, 0xea, mem);
-    // mov r13, [r10 + r13 * 8]
+    // mov r11, [r10 + r13 * 8]
     push(target, 0x4f, mem);
     push(target, 0x8b, mem);
-    push(target, 0x2c, mem);
+    push(target, 0x1c, mem);
     push(target, 0xea, mem);
+
+    // mov rdi, r12
+    // push(target, 0x49, mem);
+    // push(target, 0x89, mem);
+    // push(target, 0xfc, mem);
 
     release();
 }
@@ -595,7 +599,9 @@ fn(void, __x86_64_linux_machine_nop, bytecode target) { push(target, 0x90, mem);
 // RET
 fn(void, __x86_64_linux_machine_ret, void *_environment, byte restore_state) {
     var environment = (x86_64_linux_env) _environment;
+
     if (restore_state) __x86_64_linux_machine_pop_restore_r11(environment, mem);
+
     push(environment->target, 0xc3, mem);
 }
 
@@ -724,6 +730,12 @@ fn(void, x86_64_linux_useless, void *_environment) {
     // nothing to do.v
 }
 
+fn(void, x86_64_linux_cycle, void *_environment) {
+    // var target = ((x86_64_linux_env) _environment)->target;
+    // push(target, 0x66, mem);
+    // push(target, 0x90, mem);
+}
+
 const var JMP_SIZE = 8 /* qword */ + 2 /* mov rbx, value */ + 2 /* jmp rbx */;
 
 fn(void *, x86_64_linux_create_env, IR ir) {
@@ -800,7 +812,30 @@ fn(void, x86_64_linux_push_from_tmp, void *_environment) {
 
 fn(void, x86_64_linux_ret, void *_environment) {
     sdebug(ret);
+    ground();
     var environment = (x86_64_linux_env) _environment;
+    var target = environment->target;
+
+    // If previous instruction is a ret, just remove it and don't add this one.
+    var simulated_ret = (bytecode) new (byte, 0);
+    var env           = new (struct x86_64_linux_env);
+    env->target       = simulated_ret;
+    env->stack        = environment->stack;
+    __x86_64_linux_machine_ret(env, 1, scratch);
+
+    // if (target->size > env->target->size) {
+    //     if (strncmp(
+    //             (char *) env->target->array,
+    //             (char *) &target->array[ -env->target->size ],
+    //             env->target->size)
+    //         == 0) {
+    //         release();
+    //         return;
+    //     }
+    // } else {
+    //     release();
+    // }
+
     // TODO: Add memory cleanup and persistence after I implement the memory safety
     // Mechanism:
     // 1. Get the parent block that's being returned from the allocator
@@ -809,6 +844,7 @@ fn(void, x86_64_linux_ret, void *_environment) {
     // 3. Return the address we need in it
     // This is faster and more efficient than cloning the entire array in the top arena
     __x86_64_linux_machine_ret(environment, 1, mem);
+    release();
 }
 
 fn(void, x86_64_linux_dryback, void *_environment) {
@@ -1151,7 +1187,7 @@ scribe get_scribe_x86_64_linux() {
                         .set        = x86_64_linux_addr_set_addr_to_tmp,
                         .block      = x86_64_linux_create_block,
                         .call       = x86_64_linux_call,
-                        .cycle  = x86_64_linux_useless, // i don't have a use for this as of now...
+                        .cycle  = x86_64_linux_cycle, // i don't have a use for this as of now...
                         .finish = x86_64_linux_finish
     };
 

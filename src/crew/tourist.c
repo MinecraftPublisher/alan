@@ -475,6 +475,8 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
                 context,
                 mem);
         }
+
+        // TODO! return existence check???
     } else if (term->type == tembd) {
         print_i(term, 0, context, 0);
         printf("\n\n");

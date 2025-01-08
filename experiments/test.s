@@ -26,7 +26,7 @@ _push_restore:
     mov r10, stack_ptr
     cmp r13, stack_size
     cmovg r13, r10
-    mov [r10 + r13 * 8], rdi
+    mov [r10 + r13 * 8], r11
     inc r13
 
 _pop_restore:
@@ -34,7 +34,7 @@ _pop_restore:
     dec r13
     cmp r13, 0
     cmovl r13, r10
-    mov rdi, [r10 + r13 * 8]
+    mov r11, [r10 + r13 * 8]
 
 _push:
     mov r10, stack_ptr
@@ -50,7 +50,11 @@ _pop:
     cmovl r11, r10
     mov rdi, [r10 + r11 * 8]
 
+_pre_drop:
+    mov r12, rdi
+    mov rdi, r12
+
 _start:
-    add rdi, rsi
+    mov [r10 + r13 * 8], r11
 
     exit(0)
