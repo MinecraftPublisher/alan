@@ -55,6 +55,6 @@ _pre_drop:
     mov rdi, r12
 
 _start:
-    mov [r10 + r13 * 8], r11
+    mov [rsi], rdi
 
     exit(0)

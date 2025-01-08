@@ -243,7 +243,7 @@ fn(void, __x86_64_linux_machine_ptr_in_rdi, i64 ptr, bytecode target, indexes re
     if (target->size > env->target->size) {
         if (strncmp(
                 (char *) env->target->array,
-                (char *) &target->array[ -env->target->size ],
+                (char *) &target->array[ target->size - env->target->size ],
                 env->target->size)
             == 0) {
             release();
@@ -465,7 +465,7 @@ fn(void, __x86_64_linux_machine_pop_rdi, struct x86_64_linux_env *environment) {
     if (target->size > env->target->size) {
         if (strncmp(
                 (char *) env->target->array,
-                (char *) &target->array[ -env->target->size ],
+                (char *) &target->array[ target->size - env->target->size ],
                 env->target->size)
             == 0) {
             extend((Array) target, -env->target->size, mem);
@@ -506,6 +506,10 @@ fn(void, __x86_64_linux_machine_push_restore_r11, struct x86_64_linux_env *envir
     var target = environment->target;
 
     // __x86_64_linux_machine_int3(target, mem);
+    // inc r13
+    push(target, 0x49, mem);
+    push(target, 0xff, mem);
+    push(target, 0xc5, mem);
     // mov r10, stack_ptr
     __x86_64_linux_machine_r10((uint64_t) environment->restore_stack, target, mem);
     // cmp r13, 0
@@ -523,10 +527,6 @@ fn(void, __x86_64_linux_machine_push_restore_r11, struct x86_64_linux_env *envir
     push(target, 0x89, mem);
     push(target, 0x1c, mem);
     push(target, 0xea, mem);
-    // inc r13
-    push(target, 0x49, mem);
-    push(target, 0xff, mem);
-    push(target, 0xc5, mem);
 }
 
 fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *environment) {
@@ -543,7 +543,7 @@ fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *enviro
     if (target->size > env->target->size) {
         if (strncmp(
                 (char *) env->target->array,
-                (char *) &target->array[ -env->target->size ],
+                (char *) &target->array[ target->size - env->target->size ],
                 env->target->size)
             == 0) {
             extend((Array) target, -env->target->size, mem);
@@ -555,10 +555,6 @@ fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *enviro
     }
 
     // __x86_64_linux_machine_int3(target, mem);
-    // dec r13
-    push(target, 0x49, mem);
-    push(target, 0xff, mem);
-    push(target, 0xcd, mem);
     // mov r10, stack_ptr
     __x86_64_linux_machine_r10((uint64_t) environment->restore_stack, target, mem);
     // cmp r13, 0
@@ -576,11 +572,10 @@ fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *enviro
     push(target, 0x8b, mem);
     push(target, 0x1c, mem);
     push(target, 0xea, mem);
-
-    // mov rdi, r12
-    // push(target, 0x49, mem);
-    // push(target, 0x89, mem);
-    // push(target, 0xfc, mem);
+    // dec r13
+    push(target, 0x49, mem);
+    push(target, 0xff, mem);
+    push(target, 0xcd, mem);
 
     release();
 }
@@ -814,7 +809,7 @@ fn(void, x86_64_linux_ret, void *_environment) {
     sdebug(ret);
     ground();
     var environment = (x86_64_linux_env) _environment;
-    var target = environment->target;
+    var target      = environment->target;
 
     // If previous instruction is a ret, just remove it and don't add this one.
     var simulated_ret = (bytecode) new (byte, 0);
@@ -826,7 +821,7 @@ fn(void, x86_64_linux_ret, void *_environment) {
     // if (target->size > env->target->size) {
     //     if (strncmp(
     //             (char *) env->target->array,
-    //             (char *) &target->array[ -env->target->size ],
+    //             (char *) &target->array[ target->size - env->target->size ],
     //             env->target->size)
     //         == 0) {
     //         release();
@@ -1035,6 +1030,7 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
 
     else if (strcmp(string_name, "getp") == 0) {
         __x86_64_linux_machine_pop_rdi(environment, mem);
+        // mov rdi, [rdi]
         push(target, 0x48, mem);
         push(target, 0x8b, mem);
         push(target, 0x3f, mem);
@@ -1046,6 +1042,7 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
         // address
         __x86_64_linux_machine_pop_rdi(environment, mem);
+        // mov [rsi], rdi
         push(target, 0x48, mem);
         push(target, 0x89, mem);
         push(target, 0x3e, mem);
