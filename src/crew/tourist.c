@@ -93,13 +93,13 @@ fn(void, tourist, IR scope, ctx context) {
 
         if (*(i32 *) &cur == 0) continue;
         skip_segments++;
-        if (cur.body->size == 0) continue;
+        if (cur.body->list->size == 0) continue;
         skip_segments--;
 
         if (cur.name == 1) printf(bold_blue("main") ":\n");
         else { printf(bold_blue("0x%X") ":\n", i); }
-        for (i32 j = 0; j < cur.body->size; j++) {
-            var inst = cur.body->array[ j ];
+        for (i32 j = 0; j < cur.body->list->size; j++) {
+            var inst = cur.body->list->array[ j ];
             if (inst.op == iruseless || inst.op == irnop) {
                 skips++;
                 continue;
@@ -215,7 +215,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
 
             represent(term->value.call.args->array[ 0 ], scope, name_scope, cur, context, mem);
 
-            var resolved = llabs(cur->array[ cur->size - 1 ].data.iaddr.value);
+            var resolved = llabs(cur->list->array[ cur->list->size - 1 ].data.iaddr.value);
             var subindex = (resolved << 32) >> 32;
             var topindex = resolved >> 32;
             push(scope->compiler_data.reserves, resolved, mem);
@@ -234,11 +234,12 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             goto END;
         } else if (name == IF_CALL) {
             var seg_name          = scope->segments->size;
-            var me                = (IR_FUNCTION) { .name = -seg_name, .body = (void *) cur };
+            var me                = (IR_FUNCTION) { .name = -seg_name, .body = cur };
             var new_scope         = (IR_SCOPE_ARRAY) ret(i32, 1);
             new_scope->array[ 0 ] = scope->global_name_scope_id++;
             if (parser_optimizations <= OPT_BASIC) {
-                me.body = (void *) ret(IR_INST, 0);
+                me.body       = ret(struct INST_LIST);
+                me.body->list = (void *) ret(IR_INST, 0);
                 push(scope->segments, me, mem);
             }
 
@@ -266,7 +267,8 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             var new_scope         = (IR_SCOPE_ARRAY) ret(i32, 1);
             new_scope->array[ 0 ] = scope->global_name_scope_id++;
             if (parser_optimizations <= OPT_BASIC) {
-                me.body = (void *) ret(IR_INST, 0);
+                me.body       = ret(struct INST_LIST);
+                me.body->list = (void *) ret(IR_INST, 0);
                 push(scope->segments, me, mem);
             }
 
@@ -292,7 +294,8 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             var new_scope         = (IR_SCOPE_ARRAY) ret(i32, 1);
             new_scope->array[ 0 ] = scope->global_name_scope_id++;
             if (parser_optimizations <= OPT_BASIC) {
-                me.body = (void *) ret(IR_INST, 0);
+                me.body       = ret(struct INST_LIST);
+                me.body->list = (void *) ret(IR_INST, 0);
                 push(scope->segments, me, mem);
             }
 
@@ -319,7 +322,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
                 context,
                 mem);
 
-            push(me.body, result, mem);
+            push(me.body->list, result, mem);
             scope->inst_count++;
 
             goto END;
@@ -356,7 +359,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             // FIXME
             var pop_stack = (IR_INST) { .op = irpop, .data.ipop = {} };
 
-            push(cur, pop_stack, mem);
+            push(cur->list, pop_stack, mem);
             scope->inst_count++;
 
             var target   = term->value.call.args->array[ 1 ]->value.ref;
@@ -406,7 +409,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
 
         for (i32 i = term->value.call.args->size - 1; i >= 0; i--) {
             represent(term->value.call.args->array[ i ], scope, name_scope, cur, context, mem);
-            push(cur, push_stack, mem);
+            push(cur->list, push_stack, mem);
             scope->inst_count++;
         }
 
@@ -423,7 +426,7 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
     } else if (term->type == tcode) {
         if (term->value.block.items->size >= 16 || parser_optimizations > OPT_BASIC) {
             var seg_name = scope->segments->size;
-            var me       = (IR_FUNCTION) { .name = -seg_name, .body = (void *) ret(IR_INST, 0) };
+            var me       = (IR_FUNCTION) { .name = -seg_name, .body = ret(struct INST_LIST) };
             push(scope->segments, me, mem);
 
             var new_scope         = (IR_SCOPE_ARRAY) ret(i32, 1);
@@ -453,7 +456,8 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
         }
     } else if (term->type == tfn) {
         var my_segment
-            = (IR_FUNCTION) { .name = term->value.fn.name, .body = (void *) ret(IR_INST, 0) };
+            = (IR_FUNCTION) { .name = term->value.fn.name, .body = ret(struct INST_LIST) };
+        my_segment.body->list = (void *) ret(IR_INST, 0);
         push(scope->segments, my_segment, mem);
 
         var new_scope         = (IR_SCOPE_ARRAY) ret(i32, 1);
@@ -499,7 +503,7 @@ END:
 
     result.scope = name_scope;
 
-    push(cur, result, mem);
+    push(cur->list, result, mem);
     // if (result.op == irconst) push(cur, push_stack, mem);
 }
 
@@ -511,7 +515,8 @@ fn(IR, emit, A(i) * term, ctx context) {
                                            .compiler_data = { .reserves = (void *) ret(i64, 0), .context = context } };
     output.compiler_data.reserves = (void *) ret(i64, 0);
 
-    var main_segment = (IR_FUNCTION) { .name = 1, .body = (void *) ret(IR_INST, 0) };
+    var main_segment = (IR_FUNCTION) { .name = 1, .body = ret(struct INST_LIST) };
+    main_segment.body->list = (void*)ret(IR_INST, 0);
 
     push(output.segments, main_segment, mem);
 
@@ -536,8 +541,8 @@ fn(IR, emit, A(i) * term, ctx context) {
 
             push(output.literals, ref, mem);
         } else if (item.type == etfn) {
-            var func
-                = (IR_FUNCTION) { .name = item.value.fn.name, .body = (void *) ret(IR_INST, 0) };
+            var func = (IR_FUNCTION) { .name = item.value.fn.name, .body = ret(struct INST_LIST) };
+            func.body->list = (void *) ret(IR_INST, 0);
 
             push(output.segments, func, mem);
         } else {

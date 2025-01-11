@@ -50,11 +50,23 @@ _pop:
     cmovl r11, r10
     mov rdi, [r10 + r11 * 8]
 
-_pre_drop:
-    mov r12, rdi
-    mov rdi, r12
+_extend_var:
+    add r15, 0x11223344
+
+_retract_var:
+    sub r15, 0x11223344
+
+_get_var:
+    mov rdi, [r15 - 0x112233447788]
+
+_set_var:
+    mov [r15 - 0x112233447788], rdi
+
+_plain_addr_32:
+    mov rdi, r15
+    add rdi, 0x11223344
 
 _start:
-    mov [rsi], rdi
+    mov r15, 0x1122334455667788
 
     exit(0)

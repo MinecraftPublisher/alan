@@ -23,13 +23,16 @@ struct block_loc {
     i64 actual_address;
 };
 
-#define STACK_SIZE         ((1 << 13) * sizeof(i64) / 8)
-#define RESTORE_STACK_SIZE ((1 << 8) * sizeof(i64) / 8)
+#define MAIN_STACK_SIZE         ((1 << 13) * sizeof(i64) / 8)
+#define RESTORE_MAIN_STACK_SIZE ((1 << 8) * sizeof(i64) / 8)
+#define VAR_STACK_SIZE          ((1 << 13) * sizeof(i64) / 8)
+#define RESTORE_VAR_STACK_SIZE  ((1 << 8) * sizeof(i64) / 8)
+
 typedef struct x86_64_linux_env {
     A(struct block_loc) * block_locations;
     indexes  replace_pointers;
     bytecode target;
-    IR       ir;
+    // IR       ir;
 
     i64 func_start;
     i64 put_main;
@@ -38,10 +41,25 @@ typedef struct x86_64_linux_env {
     i64 main_segment; // SET AFTER INIT
     i64 allocator;    // SET AFTER INIT
 
+    i64 cur_block_size;
     i64 stack_diff;
 
-    i64 *stack;
-    i64 *restore_stack;
+    i64 push_ptr;
+    i64 pop_ptr;
+    i64 push_restore_ptr;
+    i64 pop_restore_ptr;
+
+    i64 var_push_ptr;
+    i64 var_pop_ptr;
+
+    i64 last_push_index;
+
+    struct {
+        i64 *main_stack;
+        i64 *restore_main_stack;
+
+        i64 *var_stack;
+    } stacks;
 } *x86_64_linux_env;
 
 typedef struct {
@@ -149,6 +167,12 @@ fn(void, __x86_64_linux_machine_rdi, i64 value, bytecode target) {
 
 fn(void, __x86_64_linux_machine_rdi_short, i32 value, bytecode target) {
     // __x86_64_linux_machine_int3(target, mem);
+    // xor rdi, rdi
+    push(target, 0x48, mem);
+    push(target, 0x31, mem);
+    push(target, 0xff, mem);
+    if (value == 0) return;
+    // mov rdi, value
     push(target, 0xbf, mem);
     __x86_64_linux_machine_emit_dword(value, target, mem);
 }
@@ -165,12 +189,6 @@ fn(void, __x86_64_linux_machine_rdx, i64 value, bytecode target) {
     __x86_64_linux_machine_emit_qword(value, target, mem);
 }
 
-fn(void, __x86_64_linux_machine_r10, i64 value, bytecode target) {
-    push(target, 0x49, mem);
-    push(target, 0xba, mem);
-    __x86_64_linux_machine_emit_qword(value, target, mem);
-}
-
 fn(void, __x86_64_linux_machine_r8, i64 value, bytecode target) {
     push(target, 0x49, mem);
     push(target, 0xb8, mem);
@@ -183,9 +201,21 @@ fn(void, __x86_64_linux_machine_r9, i64 value, bytecode target) {
     __x86_64_linux_machine_emit_qword(value, target, mem);
 }
 
+fn(void, __x86_64_linux_machine_r10, i64 value, bytecode target) {
+    push(target, 0x49, mem);
+    push(target, 0xba, mem);
+    __x86_64_linux_machine_emit_qword(value, target, mem);
+}
+
 fn(void, __x86_64_linux_machine_r11, i64 value, bytecode target) {
     push(target, 0x49, mem);
     push(target, 0xbb, mem);
+    __x86_64_linux_machine_emit_qword(value, target, mem);
+}
+
+fn(void, __x86_64_linux_machine_r12, i64 value, bytecode target) {
+    push(target, 0x49, mem);
+    push(target, 0xbc, mem);
     __x86_64_linux_machine_emit_qword(value, target, mem);
 }
 
@@ -195,42 +225,21 @@ fn(void, __x86_64_linux_machine_r13, i64 value, bytecode target) {
     __x86_64_linux_machine_emit_qword(value, target, mem);
 }
 
-// Puts a pointer inside rbx.
-fn(void,
-   __x86_64_linux_machine_put_pointer,
-   struct Pointer ptr,
-   bytecode       target,
-   indexes        replace_pointers) {
-    push(replace_pointers, ptr, mem);
-    __x86_64_linux_machine_rbx(ptr.value, target, mem);
+fn(void, __x86_64_linux_machine_r15, i64 value, bytecode target) {
+    push(target, 0x49, mem);
+    push(target, 0xbf, mem);
+    __x86_64_linux_machine_emit_qword(value, target, mem);
 }
 
-fn(void, __x86_64_linux_machine_rax_in_ptr, i64 ptr, bytecode target, indexes replace_pointers) {
-    struct Pointer our_index = { .put_in = target->size + 2, .value = ptr * 8 };
-    __x86_64_linux_machine_put_pointer(our_index, target, replace_pointers, mem);
-    push(target, 0x48, mem);
+fn(void, __x86_64_linux_machine_rdi_in_ptr, i64 ptr, bytecode target) {
+    // mov [_ptr + r15], rdi
+    push(target, 0x49, mem);
     push(target, 0x89, mem);
-    push(target, 0x03, mem);
+    push(target, 0xbf, mem);
+    __x86_64_linux_machine_emit_dword(ptr * 8 + 8, target, mem);
 }
 
-fn(void, __x86_64_linux_machine_ptr_in_rax, i64 ptr, bytecode target, indexes replace_pointers) {
-    struct Pointer our_index = { .put_in = target->size + 2, .value = ptr * 8 };
-    push(replace_pointers, our_index, mem);
-    __x86_64_linux_machine_rax(0x0, target, mem);
-    push(target, 0x48, mem);
-    push(target, 0x8b, mem);
-    push(target, 0x00, mem);
-}
-
-fn(void, __x86_64_linux_machine_rdi_in_ptr, i64 ptr, bytecode target, indexes replace_pointers) {
-    struct Pointer our_index = { .put_in = target->size + 2, .value = ptr * 8 };
-    __x86_64_linux_machine_put_pointer(our_index, target, replace_pointers, mem);
-    push(target, 0x48, mem);
-    push(target, 0x89, mem);
-    push(target, 0x3b, mem);
-}
-
-fn(void, __x86_64_linux_machine_ptr_in_rdi, i64 ptr, bytecode target, indexes replace_pointers) {
+fn(void, __x86_64_linux_machine_ptr_in_rdi, i64 ptr, bytecode target) {
     ground();
 
     // If previous instruction is a push, just remove it and don't add this one.
@@ -238,7 +247,7 @@ fn(void, __x86_64_linux_machine_ptr_in_rdi, i64 ptr, bytecode target, indexes re
     var env           = new (struct x86_64_linux_env);
     var rep_ptrs      = (indexes) new (struct Pointer, 0);
     env->target       = simulated_ptr;
-    __x86_64_linux_machine_rdi_in_ptr(ptr, env->target, rep_ptrs, scratch);
+    __x86_64_linux_machine_rdi_in_ptr(ptr, env->target, scratch);
 
     if (target->size > env->target->size) {
         if (strncmp(
@@ -253,12 +262,11 @@ fn(void, __x86_64_linux_machine_ptr_in_rdi, i64 ptr, bytecode target, indexes re
         release();
     }
 
-    struct Pointer our_index = { .put_in = target->size + 2, .value = ptr * 8 };
-    push(replace_pointers, our_index, mem);
-    __x86_64_linux_machine_rdi(0x0, target, mem);
-    push(target, 0x48, mem);
+    // mov rdi, [_ptr + r15]
+    push(target, 0x49, mem);
     push(target, 0x8b, mem);
-    push(target, 0x3f, mem);
+    push(target, 0xbf, mem);
+    __x86_64_linux_machine_emit_dword(ptr * 8 + 8, target, mem);
 
     release();
 }
@@ -315,10 +323,10 @@ fn(void, __x86_64_linux_machine_jmp0, i64 where, bytecode target, indexes replac
     // cmove moves rcx into rbx when rax is zero.
 
     var rbx_place = target->size + 2;
-    __x86_64_linux_machine_rbx(0, target, mem);
+    __x86_64_linux_machine_rbx(where, target, mem);
 
     var rcx_place = target->size + 2;
-    __x86_64_linux_machine_rcx(0, target, mem);
+    __x86_64_linux_machine_rcx(-target->size, target, mem);
 
     // cmp rdi, 0
     push(target, 0x48, mem);
@@ -343,26 +351,14 @@ fn(void, __x86_64_linux_machine_jmp0, i64 where, bytecode target, indexes replac
     push(replace_pointers, rbx_dex, mem);
 }
 
-fn(void, __x86_64_linux_machine_call, i64 where, bytecode target, indexes replace_pointers) {
-    var rbx_place = target->size + 2;
-    __x86_64_linux_machine_rbx(0, target, mem);
-
-    // call rbx
-    push(target, 0xff, mem);
-    push(target, 0xd3, mem);
-
-    struct Pointer rbx_dex = { .put_in = rbx_place, .value = where };
-    push(replace_pointers, rbx_dex, mem);
-}
-
 fn(void, __x86_64_linux_machine_jmpn0, i64 where, bytecode target, indexes replace_pointers) {
     // RBX contains the actual jump location, whilst RCX contains the address right after the JMP.
 
     var rbx_place = target->size + 2;
-    __x86_64_linux_machine_rbx(0, target, mem);
+    __x86_64_linux_machine_rbx(where, target, mem);
 
     var rcx_place = target->size + 2;
-    __x86_64_linux_machine_rcx(0, target, mem);
+    __x86_64_linux_machine_rcx(where, target, mem);
 
     // cmp rdi, 0
     push(target, 0x48, mem);
@@ -382,6 +378,18 @@ fn(void, __x86_64_linux_machine_jmpn0, i64 where, bytecode target, indexes repla
 
     struct Pointer rcx_dex = { .put_in = rcx_place, .value = target->size };
     push(replace_pointers, rcx_dex, mem);
+
+    struct Pointer rbx_dex = { .put_in = rbx_place, .value = where };
+    push(replace_pointers, rbx_dex, mem);
+}
+
+fn(void, __x86_64_linux_machine_call, i64 where, bytecode target, indexes replace_pointers) {
+    var rbx_place = target->size + 2;
+    __x86_64_linux_machine_rbx(where, target, mem);
+
+    // call rbx
+    push(target, 0xff, mem);
+    push(target, 0xd3, mem);
 
     struct Pointer rbx_dex = { .put_in = rbx_place, .value = where };
     push(replace_pointers, rbx_dex, mem);
@@ -424,17 +432,22 @@ fn(void, __x86_64_linux_machine_munmap, bytecode target) {
     // machine_esi(size, target, mem);
 }
 
-fn(void, __x86_64_linux_machine_push_rdi, struct x86_64_linux_env *environment) {
+// r11 - normal stack
+// r13 - normal restore stack
+// r15 - variable stack
+// r12 - variable restore stack
+
+fn(void, ____x86_64_linux_machine_push_rdi, struct x86_64_linux_env *environment) {
     var target = environment->target;
 
     // __x86_64_linux_machine_int3(target, mem);
     // mov r10, stack_ptr
-    __x86_64_linux_machine_r10((uint64_t) environment->stack, target, mem);
+    __x86_64_linux_machine_r10((uint64_t) environment->stacks.main_stack, target, mem);
     // cmp r11, 0
     push(target, 0x49, mem);
     push(target, 0x81, mem);
     push(target, 0xfb, mem);
-    __x86_64_linux_machine_emit_dword(STACK_SIZE / 8, target, mem);
+    __x86_64_linux_machine_emit_dword(MAIN_STACK_SIZE / 8, target, mem);
     // cmovg r11, r10
     push(target, 0x4d, mem);
     push(target, 0x0f, mem);
@@ -451,30 +464,9 @@ fn(void, __x86_64_linux_machine_push_rdi, struct x86_64_linux_env *environment) 
     push(target, 0xc3, mem);
 }
 
-fn(void, __x86_64_linux_machine_pop_rdi, struct x86_64_linux_env *environment) {
+fn(void, ____x86_64_linux_machine_pop_rdi, struct x86_64_linux_env *environment) {
     ground();
     var target = environment->target;
-
-    // If previous instruction is a push, just remove it and don't add this one.
-    var simulated_push = (bytecode) new (byte, 0);
-    var env            = new (struct x86_64_linux_env);
-    env->target        = simulated_push;
-    env->stack         = environment->stack;
-    __x86_64_linux_machine_push_rdi(env, scratch);
-
-    if (target->size > env->target->size) {
-        if (strncmp(
-                (char *) env->target->array,
-                (char *) &target->array[ target->size - env->target->size ],
-                env->target->size)
-            == 0) {
-            extend((Array) target, -env->target->size, mem);
-            release();
-            return;
-        }
-    } else {
-        release();
-    }
 
     // __x86_64_linux_machine_int3(target, mem);
     // dec r11
@@ -482,7 +474,7 @@ fn(void, __x86_64_linux_machine_pop_rdi, struct x86_64_linux_env *environment) {
     push(target, 0xff, mem);
     push(target, 0xcb, mem);
     // mov r10, stack_ptr
-    __x86_64_linux_machine_r10((uint64_t) environment->stack, target, mem);
+    __x86_64_linux_machine_r10((uint64_t) environment->stacks.main_stack, target, mem);
     // cmp r11, 0
     push(target, 0x49, mem);
     push(target, 0x83, mem);
@@ -502,34 +494,34 @@ fn(void, __x86_64_linux_machine_pop_rdi, struct x86_64_linux_env *environment) {
     release();
 }
 
-fn(void, __x86_64_linux_machine_push_restore_r11, struct x86_64_linux_env *environment) {
+fn(void, __x86_64_linux_machine_push_var_rdi, struct x86_64_linux_env *environment) {
     var target = environment->target;
 
     // __x86_64_linux_machine_int3(target, mem);
-    // inc r13
-    push(target, 0x49, mem);
-    push(target, 0xff, mem);
-    push(target, 0xc5, mem);
     // mov r10, stack_ptr
-    __x86_64_linux_machine_r10((uint64_t) environment->restore_stack, target, mem);
-    // cmp r13, 0
+    __x86_64_linux_machine_r10((uint64_t) environment->stacks.main_stack, target, mem);
+    // cmp r15, 0
     push(target, 0x49, mem);
     push(target, 0x81, mem);
-    push(target, 0xfd, mem);
-    __x86_64_linux_machine_emit_dword(RESTORE_STACK_SIZE / 8, target, mem);
-    // cmovg r13, r10
+    push(target, 0xff, mem);
+    __x86_64_linux_machine_emit_dword(VAR_STACK_SIZE / 8, target, mem);
+    // cmovg r15, r10
     push(target, 0x4d, mem);
     push(target, 0x0f, mem);
     push(target, 0x4f, mem);
-    push(target, 0xea, mem);
-    // mov [r10 + r13 * 8], r11
-    push(target, 0x4f, mem);
+    push(target, 0xfa, mem);
+    // mov [r10 + r11 * 8], rdi
+    push(target, 0x4b, mem);
     push(target, 0x89, mem);
-    push(target, 0x1c, mem);
-    push(target, 0xea, mem);
+    push(target, 0x3c, mem);
+    push(target, 0xfa, mem);
+    // inc r11
+    push(target, 0x49, mem);
+    push(target, 0xff, mem);
+    push(target, 0xc7, mem);
 }
 
-fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *environment) {
+fn(void, __x86_64_linux_machine_pop_var_rdi, struct x86_64_linux_env *environment) {
     ground();
     var target = environment->target;
 
@@ -537,8 +529,8 @@ fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *enviro
     var simulated_push = (bytecode) new (byte, 0);
     var env            = new (struct x86_64_linux_env);
     env->target        = simulated_push;
-    env->stack         = environment->stack;
-    __x86_64_linux_machine_push_restore_r11(env, scratch);
+    env->stacks        = environment->stacks;
+    __x86_64_linux_machine_push_var_rdi(env, scratch);
 
     if (target->size > env->target->size) {
         if (strncmp(
@@ -555,27 +547,151 @@ fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *enviro
     }
 
     // __x86_64_linux_machine_int3(target, mem);
+    // dec r11
+    push(target, 0x49, mem);
+    push(target, 0xff, mem);
+    push(target, 0xcf, mem);
     // mov r10, stack_ptr
-    __x86_64_linux_machine_r10((uint64_t) environment->restore_stack, target, mem);
-    // cmp r13, 0
+    __x86_64_linux_machine_r10((uint64_t) environment->stacks.main_stack, target, mem);
+    // cmp r11, 0
+    push(target, 0x49, mem);
+    push(target, 0x83, mem);
+    push(target, 0xff, mem);
+    push(target, 0x00, mem);
+    // cmovl r11, r10
+    push(target, 0x4d, mem);
+    push(target, 0x0f, mem);
+    push(target, 0x4c, mem);
+    push(target, 0xfa, mem);
+    // mov rdi, [r10 + r11 * 8]
+    push(target, 0x4b, mem);
+    push(target, 0x8b, mem);
+    push(target, 0x3c, mem);
+    push(target, 0xfa, mem);
+
+    release();
+}
+
+fn(void, __x86_64_linux_machine_push_restore_r11, struct x86_64_linux_env *environment) {
+    var target = environment->target;
+
+    // __x86_64_linux_machine_int3(target, mem);
+    // mov r10, stack_ptr
+    __x86_64_linux_machine_r10((uint64_t) environment->stacks.restore_main_stack, target, mem);
+    // cmp r15, 0
+    push(target, 0x49, mem);
+    push(target, 0x81, mem);
+    push(target, 0xfd, mem);
+    __x86_64_linux_machine_emit_dword(RESTORE_MAIN_STACK_SIZE / 8, target, mem);
+    // cmovg r15, r10
+    push(target, 0x4d, mem);
+    push(target, 0x0f, mem);
+    push(target, 0x4f, mem);
+    push(target, 0xea, mem);
+    // mov [r10 + r15 * 8], r11
+    push(target, 0x4f, mem);
+    push(target, 0x89, mem);
+    push(target, 0x1c, mem);
+    push(target, 0xea, mem);
+    // inc r15
+    push(target, 0x49, mem);
+    push(target, 0xff, mem);
+    push(target, 0xc5, mem);
+}
+
+fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *environment) {
+    ground();
+    var target = environment->target;
+
+    // If previous instruction is a push, just remove it and don't add this one.
+    var simulated_push = (bytecode) new (byte, 0);
+    var env            = new (struct x86_64_linux_env);
+    env->target        = simulated_push;
+    env->stacks        = environment->stacks;
+    __x86_64_linux_machine_push_restore_r11(env, scratch);
+
+    if (target->size > env->target->size) {
+        if (strncmp(
+                (char *) env->target->array,
+                (char *) &target->array[ target->size - env->target->size ],
+                env->target->size)
+            == 0) {
+            extend((Array) target, -env->target->size, mem);
+            release();
+            return;
+        }
+    } else {
+        release();
+    }
+
+    // dec r15
+    push(target, 0x49, mem);
+    push(target, 0xff, mem);
+    push(target, 0xcd, mem);
+    // __x86_64_linux_machine_int3(target, mem);
+    // mov r10, stack_ptr
+    __x86_64_linux_machine_r10((uint64_t) environment->stacks.restore_main_stack, target, mem);
+    // cmp r15, 0
     push(target, 0x49, mem);
     push(target, 0x83, mem);
     push(target, 0xfd, mem);
     push(target, 0x00, mem);
-    // cmovl r13, r10
+    // cmovl r15, r10
     push(target, 0x4d, mem);
     push(target, 0x0f, mem);
     push(target, 0x4c, mem);
     push(target, 0xea, mem);
-    // mov r11, [r10 + r13 * 8]
+    // mov r11, [r10 + r15 * 8]
     push(target, 0x4f, mem);
     push(target, 0x8b, mem);
     push(target, 0x1c, mem);
     push(target, 0xea, mem);
-    // dec r13
+
+    release();
+}
+
+fn(void, __x86_64_linux_machine_extend_r15, i64 offset, struct x86_64_linux_env *environment) {
+    var target = environment->target;
+    if (offset == 0) return;
+
+    // add r15, _offset
     push(target, 0x49, mem);
-    push(target, 0xff, mem);
-    push(target, 0xcd, mem);
+    push(target, 0x81, mem);
+    push(target, 0xc7, mem);
+    __x86_64_linux_machine_emit_dword(offset * 8, target, mem);
+}
+
+fn(void, __x86_64_linux_machine_retract_r15, i64 offset, struct x86_64_linux_env *environment) {
+    ground();
+    var target = environment->target;
+    if (offset == 0) return;
+
+    // If previous instruction is a push, just remove it and don't add this one.
+    var simulated_push = (bytecode) new (byte, 0);
+    var env            = new (struct x86_64_linux_env);
+    env->target        = simulated_push;
+    env->stacks        = environment->stacks;
+    __x86_64_linux_machine_extend_r15(offset, env, scratch);
+
+    if (target->size > env->target->size) {
+        if (strncmp(
+                (char *) env->target->array,
+                (char *) &target->array[ target->size - env->target->size ],
+                env->target->size)
+            == 0) {
+            extend((Array) target, -env->target->size, mem);
+            release();
+            return;
+        }
+    } else {
+        release();
+    }
+
+    // sub r15, _offset
+    push(target, 0x49, mem);
+    push(target, 0x81, mem);
+    push(target, 0xef, mem);
+    __x86_64_linux_machine_emit_dword(offset * 8, target, mem);
 
     release();
 }
@@ -591,11 +707,26 @@ fn(void, __x86_64_linux_machine_nop, bytecode target) { push(target, 0x90, mem);
 // 6. [ ] Rewrite every standard function in the language in assembly then hand-assemble it to
 // x86 This process is REQUIRED for addrI, addrD, jmp0, jmpn0, call, ret, set, pop and push
 
+fn(void, x86_64_linux_machine_pop_restore_r11, x86_64_linux_env environment) {
+    environment->stack_diff = 0;
+    __x86_64_linux_machine_call(
+        environment->pop_restore_ptr, environment->target, environment->replace_pointers, mem);
+}
+
+fn(void, x86_64_linux_machine_push_restore_r11, x86_64_linux_env environment) {
+    environment->stack_diff = 0;
+    __x86_64_linux_machine_call(
+        environment->push_restore_ptr, environment->target, environment->replace_pointers, mem);
+}
+
 // RET
 fn(void, __x86_64_linux_machine_ret, void *_environment, byte restore_state) {
     var environment = (x86_64_linux_env) _environment;
 
-    if (restore_state) __x86_64_linux_machine_pop_restore_r11(environment, mem);
+    if (restore_state) {
+        if (environment->cur_block_size > 0) x86_64_linux_machine_pop_restore_r11(environment, mem);
+        __x86_64_linux_machine_retract_r15(environment->cur_block_size, environment, mem);
+    }
 
     push(environment->target, 0xc3, mem);
 }
@@ -647,7 +778,7 @@ fn(void, __x86_64_linux_machine_elf, bytecode target) {
     }
 }
 
-#define COLUMNS 8
+#define COLUMNS 16
 void __x86_64_linux_print_bytecode(i64 size, byte *target) {
     for (size_t i = 0; i < size; ++i) {
         printf("%02x ", target[ i ]);
@@ -710,13 +841,40 @@ fn(void, __x86_64_linux_insert_ptr_space, IR ir, bytecode target) {
 }
 
 void __x86_64_linux_replace_bytecode_pointers(
-    byte *target, i64 function_offset, indexes pointers, byte symbolic) {
+    i64 function_offset, byte *target, x86_64_linux_env environment, byte symbolic) {
+    var pointers = environment->replace_pointers;
+
     var destination = &target[ -function_offset ];
     for (i64 i = 0; i < pointers->size; i++) {
+        if(pointers->array[i].put_in == -1) continue;
         var addr = (i64 *) (&destination[ pointers->array[ i ].put_in ]);
+
+        var value_i = pointers->array[ i ].value;
+        var value   = (i64) -1;
+        if (value_i < 0) {
+            for (i64 i = 0; i < environment->block_locations->size; i++) {
+                var cur = environment->block_locations->array[ i ];
+
+                if (cur.alan_name == -value_i) {
+                    value = cur.actual_address;
+
+                    break;
+                }
+            }
+
+            if (value == -1) {
+                error(
+                    scribe_error,
+                    "I (x86_64_linux) was not able to find the referenced block symbol for pointer "
+                    "replacement. "
+                    "This should not be happening!");
+            }
+        } else {
+            value = value_i;
+        }
+
         // ADD `destination + ` BACK IN
-        *addr = (i64) (symbolic ? ((byte *) -function_offset - 1) : (destination))
-                + pointers->array[ i ].value;
+        *addr = (i64) (symbolic ? ((byte *) -function_offset) : (destination)) + value;
     }
 }
 
@@ -731,36 +889,62 @@ fn(void, x86_64_linux_cycle, void *_environment) {
     // push(target, 0x90, mem);
 }
 
-const var JMP_SIZE = 8 /* qword */ + 2 /* mov rbx, value */ + 2 /* jmp rbx */;
-
 fn(void *, x86_64_linux_create_env, IR ir) {
     sdebug(run create env);
     var env               = ret(struct x86_64_linux_env);
     env->block_locations  = (void *) ret(struct block_loc, 0);
     env->target           = (bytecode) ret(char, 0);
     env->replace_pointers = (indexes) ret(struct Pointer, 0);
-    env->ir               = ir;
 
-    __x86_64_linux_insert_ptr_space(ir, env->target, mem);
+    // __x86_64_linux_insert_ptr_space(ir, env->target, mem);
 
     env->func_start = env->target->size;
 
     env->allocator = 0;
 
-    env->stack = alloc(mem, STACK_SIZE * 8);
+    env->stacks.main_stack = alloc(mem, MAIN_STACK_SIZE * 8);
     // __x86_64_linux_machine_r11(0x0, env->target, mem);
 
-    env->restore_stack = alloc(mem, RESTORE_STACK_SIZE * 8);
+    env->stacks.restore_main_stack = alloc(mem, RESTORE_MAIN_STACK_SIZE * 8);
     // __x86_64_linux_machine_r13(0x0, env->target, mem);
 
+    env->stacks.var_stack = alloc(mem, VAR_STACK_SIZE * 8);
+    __x86_64_linux_machine_r15((i64) env->stacks.var_stack, env->target, mem);
+
     env->put_main = env->target->size + 2;
-    __x86_64_linux_machine_rbx(0, env->target, mem);
+    __x86_64_linux_machine_rbx(-env->put_main, env->target, mem);
 
     // jmp rbx (main segment)
     push(env->target, 0xff, mem);
     push(env->target, 0xe3, mem);
 
-    env->jump_after = env->target->size;
+    env->jump_after = env->target->size + 2;
+
+    // PUT EXTRA CODE HERE
+    env->push_ptr = env->target->size;
+    ____x86_64_linux_machine_push_rdi(env, mem);
+    __x86_64_linux_machine_ret(env, 0, mem);
+
+    env->pop_ptr = env->target->size;
+    ____x86_64_linux_machine_pop_rdi(env, mem);
+    __x86_64_linux_machine_ret(env, 0, mem);
+
+    for (i64 i = 0; i < ir.segments->size; i++) {
+        if (ir.segments->array[ i ].body == null) continue;
+        if (ir.segments->array[ i ].body->stack_size > 0) {
+            env->push_restore_ptr = env->target->size;
+            __x86_64_linux_machine_push_restore_r11(env, mem);
+            __x86_64_linux_machine_ret(env, 0, mem);
+
+            env->pop_restore_ptr = env->target->size;
+            __x86_64_linux_machine_pop_restore_r11(env, mem);
+            __x86_64_linux_machine_ret(env, 0, mem);
+
+            break;
+        }
+    }
+
+    // __x86_64_linux_machine_nop(env->target, mem);
 
     return env;
 }
@@ -789,20 +973,61 @@ fn(void, x86_64_linux_debug, void *_environment) {
     push(target, 0xd3, mem);
 }
 
-fn(void, x86_64_linux_pop_to_tmp, void *_environment) {
-    sdebug(pop tmp);
-    var environment = (x86_64_linux_env) _environment;
-    environment->stack_diff--;
-    __x86_64_linux_machine_pop_rdi(environment, mem);
-
-    x86_64_linux_debug(environment, mem);
-}
-
 fn(void, x86_64_linux_push_from_tmp, void *_environment) {
     sdebug(push tmp);
     var environment = (x86_64_linux_env) _environment;
     environment->stack_diff++;
-    __x86_64_linux_machine_push_rdi(environment, mem);
+    environment->last_push_index = environment->target->size;
+    __x86_64_linux_machine_call(
+        environment->push_ptr, environment->target, environment->replace_pointers, mem);
+}
+
+fn(void, x86_64_linux_pop_to_tmp, void *_environment) {
+    ground();
+    sdebug(pop tmp);
+    var environment = (x86_64_linux_env) _environment;
+    var target      = environment->target;
+    environment->stack_diff--;
+
+    // If previous instruction is a push, just remove it and don't add this one.
+    var simulated_push    = (bytecode) new (byte, 0);
+    var env               = new (struct x86_64_linux_env);
+    env->replace_pointers = (indexes) new (struct Pointer, 0);
+    env->target           = simulated_push;
+    env->stacks           = environment->stacks;
+    env->push_ptr         = environment->push_ptr;
+    x86_64_linux_push_from_tmp(env, mem);
+
+    if (target->size > env->target->size) {
+        if (strncmp(
+                (char *) env->target->array,
+                (char *) &target->array[ target->size - env->target->size ],
+                env->target->size)
+            == 0) {
+            var sim_one = env->replace_pointers->array[ 0 ];
+
+            for (i64 i = 0; i < environment->replace_pointers->size; i++) {
+                var rep_ptr = &environment->replace_pointers->array[ i ];
+                var dest    = target->size - env->target->size + 2;
+
+                if(dest == rep_ptr->put_in) {
+                    rep_ptr->put_in = -1;
+                }
+            }
+
+            extend((Array) target, -env->target->size, mem);
+
+            // target->size = environment->last_push_index;
+            release();
+            return;
+        }
+    } else {
+        release();
+    }
+
+    __x86_64_linux_machine_call(environment->pop_ptr, target, environment->replace_pointers, mem);
+    // x86_64_linux_debug(environment, mem);
+    release();
 }
 
 fn(void, x86_64_linux_ret, void *_environment) {
@@ -815,7 +1040,7 @@ fn(void, x86_64_linux_ret, void *_environment) {
     var simulated_ret = (bytecode) new (byte, 0);
     var env           = new (struct x86_64_linux_env);
     env->target       = simulated_ret;
-    env->stack        = environment->stack;
+    env->stacks       = environment->stacks;
     __x86_64_linux_machine_ret(env, 1, scratch);
 
     // if (target->size > env->target->size) {
@@ -851,66 +1076,59 @@ fn(void, x86_64_linux_dryback, void *_environment) {
 fn(void, x86_64_linux_const_to_tmp, i64 value, void *_environment) {
     sdebug(const);
     var environment = (x86_64_linux_env) _environment;
-    // if (value < INT32_MAX) {
-    // __x86_64_linux_machine_rdi_short(value, environment->target, mem);
-    // } else {
-    __x86_64_linux_machine_rdi(value, environment->target, mem);
-    // }
+    if (llabs(value) < INT32_MAX) {
+        __x86_64_linux_machine_rdi_short(value, environment->target, mem);
+    } else {
+        __x86_64_linux_machine_rdi(value, environment->target, mem);
+    }
 }
 
 fn(void, x86_64_linux_jmp0, i64 where, void *_environment) {
     sdebug(jmp zero);
     var environment = (x86_64_linux_env) _environment;
 
-    for (i64 i = 0; i < environment->block_locations->size; i++) {
-        var cur = environment->block_locations->array[ i ];
-
-        if (cur.alan_name == where) {
-            __x86_64_linux_machine_jmp0(
-                cur.actual_address, environment->target, environment->replace_pointers, mem);
-            return;
-        }
-    }
-
-    error(
-        scribe_error,
-        "I (x86_64_linux) was not able to find the referenced block symbol for jmp0. "
-        "This should not be happening!");
+    __x86_64_linux_machine_jmp0(-where, environment->target, environment->replace_pointers, mem);
 }
 
 fn(void, x86_64_linux_jmpn0, i64 where, void *_environment) {
     sdebug(jmp not zero);
     var environment = (x86_64_linux_env) _environment;
 
-    for (i64 i = 0; i < environment->block_locations->size; i++) {
-        var cur = environment->block_locations->array[ i ];
-
-        if (cur.alan_name == where) {
-            __x86_64_linux_machine_jmpn0(
-                cur.actual_address, environment->target, environment->replace_pointers, mem);
-            return;
-        }
-    }
-
-    error(
-        scribe_error,
-        "I (x86_64_linux) was not able to find the referenced block symbol for jmpn0. "
-        "This should not be happening!");
+    __x86_64_linux_machine_jmpn0(-where, environment->target, environment->replace_pointers, mem);
 }
 
-fn(void, x86_64_linux_addr_deref_to_tmp, i64 addr, void *_environment) {
+fn(void, x86_64_linux_addr_deref_to_tmp, i64 addr, i64 sub_top_index, void *_environment) {
     sdebug(deref address);
     var environment = (x86_64_linux_env) _environment;
     var target      = environment->target;
 
-    __x86_64_linux_machine_ptr_in_rdi(addr, target, environment->replace_pointers, mem);
+    __x86_64_linux_machine_ptr_in_rdi(-(sub_top_index & 0xFFFFFFFF), target, mem);
 }
 
-fn(void, x86_64_linux_addr_set_addr_to_tmp, i64 addr, void *_environment) {
+fn(void, x86_64_linux_addr_set_addr_to_tmp, i64 addr, i64 sub_top_index, void *_environment) {
     sdebug(set address);
     var environment = (x86_64_linux_env) _environment;
-    __x86_64_linux_machine_rdi_in_ptr(
-        addr, environment->target, environment->replace_pointers, mem);
+    __x86_64_linux_machine_rdi_in_ptr(-(sub_top_index & 0xFFFFFFFF), environment->target, mem);
+}
+
+fn(void, __x86_64_linux_machine_add_short_rdi, i32 value, bytecode target) {
+    // mov rdi, r15
+    push(target, 0x4c, mem);
+    push(target, 0x89, mem);
+    push(target, 0xff, mem);
+
+    // add rdi, _value
+    push(target, 0x48, mem);
+    push(target, 0x81, mem);
+    push(target, 0xc7, mem);
+    __x86_64_linux_machine_emit_dword(value, target, mem);
+}
+
+fn(void, x86_64_linux_addr_plain_to_tmp, i64 value, i64 sub_top_format, void *_environment) {
+    sdebug(const);
+    var environment = (x86_64_linux_env) _environment;
+    var dest        = (i64) environment->stacks.var_stack - (sub_top_format & 0xFFFFFFFF);
+    __x86_64_linux_machine_add_short_rdi(dest, environment->target, mem);
 }
 
 fn(void, x86_64_linux_create_block, i64 name, IR ir, void *_environment) {
@@ -924,19 +1142,16 @@ fn(void, x86_64_linux_create_block, i64 name, IR ir, void *_environment) {
     // }
     // environment->stack_diff = 0;
 
-    if (environment->block_locations->size > 0 && target->array[ target->size - 1 ] != 0xc3)
+    if (environment->block_locations->size > 0 && target->array[ target->size - 1 ] != 0xc3) {
         __x86_64_linux_machine_ret(environment, 1, mem);
-    __x86_64_linux_machine_nop(target, mem);
+    }
+
+    environment->cur_block_size = ir.segments->array[ name ].body->stack_size;
+
+    // __x86_64_linux_machine_nop(target, mem);
 
     var location = (struct block_loc) { .actual_address = target->size, .alan_name = name };
     push(environment->block_locations, location, mem);
-
-    // for (i64 i = 0; i < environment->block_locations->size; i++) {
-    //     printf(
-    //         "[CHECK] NAME %li PLACE %li\n",
-    //         environment->block_locations->array[ i ].alan_name,
-    //         environment->block_locations->array[ i ].actual_address);
-    // }
 
     var string_name
         = ir.segments->array[ name ].name < 0
@@ -954,8 +1169,20 @@ fn(void, x86_64_linux_create_block, i64 name, IR ir, void *_environment) {
         struct Pointer rbx_dex = { .put_in = environment->put_main, .value = cur };
         push(replace_pointers, rbx_dex, mem);
     } else {
-        __x86_64_linux_machine_push_restore_r11(environment, mem);
+        if (environment->cur_block_size > 0) {
+            x86_64_linux_machine_push_restore_r11(environment, mem);
+        }
+
+        __x86_64_linux_machine_extend_r15(environment->cur_block_size * 8, environment, mem);
     }
+}
+
+fn(void, __x86_64_linux_efficient_pop, x86_64_linux_env environment) {
+    var target = environment->target;
+
+    // call rbx
+    push(target, 0xff, mem);
+    push(target, 0xd3, mem);
 }
 
 // This one's hard to pull off. Really hard.
@@ -970,7 +1197,7 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
     var string_name = my_name < 0 ? "block" : ir.compiler_data.context->symbols->array[ my_name ];
 
     if (strcmp(string_name, "mmap") == 0) {
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
 
         __x86_64_linux_machine_mmap(target, mem);
@@ -979,9 +1206,9 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
     }
 
     else if (strcmp(string_name, "munmap") == 0) {
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        __x86_64_linux_efficient_pop(environment, mem);
         // hotfix for swapping rdi and rsi
         // xchg rdi, rsi
         push(target, 0x48, mem);
@@ -992,30 +1219,31 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
     }
 
     else if (strcmp(string_name, "tmp") == 0) {
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
     }
 
     else if (strcmp(string_name, "add") == 0) {
         // __x86_64_linux_machine_int3(target, mem);
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        __x86_64_linux_efficient_pop(environment, mem);
+
         push(target, 0x48, mem);
         push(target, 0x01, mem);
         push(target, 0xf7, mem);
     }
 
     else if (strcmp(string_name, "sub") == 0) {
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        __x86_64_linux_efficient_pop(environment, mem);
         push(target, 0x48, mem);
         push(target, 0x29, mem);
         push(target, 0xf7, mem);
     }
 
     else if (strcmp(string_name, "not") == 0) {
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
         push(target, 0x48, mem);
         push(target, 0xf8, mem);
         push(target, 0xd7, mem);
@@ -1029,7 +1257,7 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
     }
 
     else if (strcmp(string_name, "getp") == 0) {
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
         // mov rdi, [rdi]
         push(target, 0x48, mem);
         push(target, 0x8b, mem);
@@ -1038,10 +1266,10 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
 
     else if (strcmp(string_name, "setp") == 0) {
         // value
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
         // address
-        __x86_64_linux_machine_pop_rdi(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
         // mov [rsi], rdi
         push(target, 0x48, mem);
         push(target, 0x89, mem);
@@ -1049,23 +1277,7 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
     }
 
     else if (environment->allocator <= 0) {
-        var loc = -1;
-        for (i64 i = 0; i < environment->block_locations->size; i++) {
-            var block = environment->block_locations->array[ i ];
-            if (block.alan_name != name) continue;
-            loc = block.actual_address;
-            break;
-        }
-
-        if (loc == -1) {
-            printf("Name: %lX\n", name);
-            error(
-                scribe_error,
-                "I (x86_64_linux) was not able to find the given call destination. "
-                "This should not be happening!");
-        }
-
-        __x86_64_linux_machine_call(loc, target, replace_pointers, mem);
+        __x86_64_linux_machine_call(-name, target, replace_pointers, mem);
     }
 
     else {
@@ -1090,7 +1302,7 @@ fn(void, x86_64_linux_finish, void *_environment) {
         = __x86_64_linux_get_exec(target->array, environment->func_start, target->size);
 
     __x86_64_linux_replace_bytecode_pointers(
-        (byte *) function_pointer, environment->func_start, replace_pointers, 1);
+        environment->func_start, (byte *) function_pointer, environment, 1);
 
     // -- Uncomment these to write the x86 output to a file allowing for easier debugging --
     var fd = fopen("out/x86_64_linux_dump_symbolic.bin", "w");
@@ -1098,7 +1310,7 @@ fn(void, x86_64_linux_finish, void *_environment) {
     fclose(fd);
 
     __x86_64_linux_replace_bytecode_pointers(
-        (byte *) function_pointer, environment->func_start, replace_pointers, 0);
+        environment->func_start, (byte *) function_pointer, environment, 0);
 
     fd = fopen("out/x86_64_linux_dump.bin", "w");
     fwrite(function_pointer, target->size - environment->func_start, 1, fd);
@@ -1115,9 +1327,10 @@ fn(void, x86_64_linux_finish, void *_environment) {
            " > out/x86_64_linux_dump_symbolic.asm");
 
     printf("\n");
-    printf("STACK: %p\n", environment->stack);
+    printf("STACK: %p\n", environment->stacks.main_stack);
+    printf("VAR: %p\n", environment->stacks.var_stack);
     printf("PLACE: %p\n\n", function_pointer);
-    function_pointer();
+    // function_pointer();
     // __x86_64_linux_machine_pop_rdi(environment, mem);
     var rdi = (i64 *) __x86_64_linux_get_rdi_value();
     // __x86_64_linux_print_bytecode(target->size, target->array);
@@ -1162,9 +1375,11 @@ fn(void, x86_64_linux_test_scribe, IR ir, void *_environment) {
     release();
 }
 
-// NOTE: This scribe uses RDI as a temporary register.
+// NOTE: This scribe uses RDI as a temporary register, r10 as the stack pointer, r11 as the stack
+// index, r13 as the stack restore index and r15 as the variable stack index.
 
-// TODO: Make create_block add a return statement whenever a block ends (a new one begins)
+// TODO: Implement stack_size in INST_LIST!! VERY IMPORTANT!!
+// TODO: Fix returns and drybacks in a block statement
 
 scribe get_scribe_x86_64_linux() {
     var me = (scribe) { //
@@ -1177,11 +1392,11 @@ scribe get_scribe_x86_64_linux() {
                         .ret_tmp    = x86_64_linux_ret,
                         .dryback    = x86_64_linux_dryback,
                         .constant   = x86_64_linux_const_to_tmp,
-                        .plain_addr = x86_64_linux_const_to_tmp,
-                        .jmp0       = x86_64_linux_jmp0,
-                        .jmpn0      = x86_64_linux_jmpn0,
+                        .plain_addr = x86_64_linux_addr_plain_to_tmp,
                         .deref_addr = x86_64_linux_addr_deref_to_tmp,
                         .set        = x86_64_linux_addr_set_addr_to_tmp,
+                        .jmp0       = x86_64_linux_jmp0,
+                        .jmpn0      = x86_64_linux_jmpn0,
                         .block      = x86_64_linux_create_block,
                         .call       = x86_64_linux_call,
                         .cycle  = x86_64_linux_cycle, // i don't have a use for this as of now...

@@ -164,12 +164,15 @@ typedef struct {
     } value;
 } IR_LITERAL;
 
+typedef struct INST_LIST {
+    A(IR_INST)* list;
+    i64 stack_size;
+} * INST_LIST;
+
 typedef struct {
     symbol name;
-    A(IR_INST) * body;
+    INST_LIST body;
 } IR_FUNCTION;
-
-typedef A(IR_INST) * INST_LIST;
 
 struct compiler_data {
     ctx context;

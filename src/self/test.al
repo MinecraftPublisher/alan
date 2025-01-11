@@ -1,1 +1,7 @@
-set val [ mmap 32 ];
+
+fn num test [
+    dryback 24;
+];
+
+tmp [ test ];
+
