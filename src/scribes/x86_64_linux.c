@@ -236,7 +236,7 @@ fn(void, __x86_64_linux_machine_rdi_in_ptr, i64 ptr, bytecode target) {
     push(target, 0x49, mem);
     push(target, 0x89, mem);
     push(target, 0xbf, mem);
-    __x86_64_linux_machine_emit_dword(ptr * 8 + 8, target, mem);
+    __x86_64_linux_machine_emit_dword(ptr * 8, target, mem);
 }
 
 fn(void, __x86_64_linux_machine_ptr_in_rdi, i64 ptr, bytecode target) {
@@ -266,7 +266,7 @@ fn(void, __x86_64_linux_machine_ptr_in_rdi, i64 ptr, bytecode target) {
     push(target, 0x49, mem);
     push(target, 0x8b, mem);
     push(target, 0xbf, mem);
-    __x86_64_linux_machine_emit_dword(ptr * 8 + 8, target, mem);
+    __x86_64_linux_machine_emit_dword(ptr * 8, target, mem);
 
     release();
 }
@@ -650,6 +650,8 @@ fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *enviro
     release();
 }
 
+// TODO: MAKE THESE GUYS BOUND CHECK!!!
+
 fn(void, __x86_64_linux_machine_extend_r15, i64 offset, struct x86_64_linux_env *environment) {
     var target = environment->target;
     if (offset == 0) return;
@@ -811,6 +813,14 @@ i64 __x86_64_linux_get_r13_value() {
     return r13_value;
 }
 
+i64 __x86_64_linux_get_r15_value() {
+    i64 r13_value;
+
+    __asm__("mov %%r15, %0" : "=r"(r13_value) : : "%rax");
+
+    return r13_value;
+}
+
 i64 __x86_64_linux_get_stack_value() {
     i64 r13_value;
 
@@ -846,7 +856,7 @@ void __x86_64_linux_replace_bytecode_pointers(
 
     var destination = &target[ -function_offset ];
     for (i64 i = 0; i < pointers->size; i++) {
-        if(pointers->array[i].put_in == -1) continue;
+        if (pointers->array[ i ].put_in == -1) continue;
         var addr = (i64 *) (&destination[ pointers->array[ i ].put_in ]);
 
         var value_i = pointers->array[ i ].value;
@@ -880,7 +890,7 @@ void __x86_64_linux_replace_bytecode_pointers(
 
 fn(void, x86_64_linux_useless, void *_environment) {
     sdebug(useless);
-    // nothing to do.v
+    // nothing to do.
 }
 
 fn(void, x86_64_linux_cycle, void *_environment) {
@@ -1010,9 +1020,7 @@ fn(void, x86_64_linux_pop_to_tmp, void *_environment) {
                 var rep_ptr = &environment->replace_pointers->array[ i ];
                 var dest    = target->size - env->target->size + 2;
 
-                if(dest == rep_ptr->put_in) {
-                    rep_ptr->put_in = -1;
-                }
+                if (dest == rep_ptr->put_in) { rep_ptr->put_in = -1; }
             }
 
             extend((Array) target, -env->target->size, mem);
@@ -1102,6 +1110,7 @@ fn(void, x86_64_linux_addr_deref_to_tmp, i64 addr, i64 sub_top_index, void *_env
     var environment = (x86_64_linux_env) _environment;
     var target      = environment->target;
 
+    // TODO: Massive bug!! The index does NOT take into account higher scopes!
     __x86_64_linux_machine_ptr_in_rdi(-(sub_top_index & 0xFFFFFFFF), target, mem);
 }
 
@@ -1124,12 +1133,12 @@ fn(void, __x86_64_linux_machine_add_short_rdi, i32 value, bytecode target) {
     __x86_64_linux_machine_emit_dword(value, target, mem);
 }
 
-fn(void, x86_64_linux_addr_plain_to_tmp, i64 value, i64 sub_top_format, void *_environment) {
-    sdebug(const);
-    var environment = (x86_64_linux_env) _environment;
-    var dest        = (i64) environment->stacks.var_stack - (sub_top_format & 0xFFFFFFFF);
-    __x86_64_linux_machine_add_short_rdi(dest, environment->target, mem);
-}
+// fn(void, x86_64_linux_addr_plain_to_tmp, i64 value, i64 sub_top_format, void *_environment) {
+//     sdebug(const);
+//     var environment = (x86_64_linux_env) _environment;
+//     var dest        = (i64) environment->stacks.var_stack - (sub_top_format & 0xFFFFFFFF);
+//     __x86_64_linux_machine_add_short_rdi(dest, environment->target, mem);
+// }
 
 fn(void, x86_64_linux_create_block, i64 name, IR ir, void *_environment) {
     sdebug(create block);
@@ -1173,7 +1182,7 @@ fn(void, x86_64_linux_create_block, i64 name, IR ir, void *_environment) {
             x86_64_linux_machine_push_restore_r11(environment, mem);
         }
 
-        __x86_64_linux_machine_extend_r15(environment->cur_block_size * 8, environment, mem);
+        __x86_64_linux_machine_extend_r15(environment->cur_block_size, environment, mem);
     }
 }
 
@@ -1201,6 +1210,12 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
 
         __x86_64_linux_machine_mmap(target, mem);
+        // get correct i64 value, not a byte-aligned value
+        // imul rsi, 8
+        push(target, 0x48, mem);
+        push(target, 0x6b, mem);
+        push(target, 0xf6, mem);
+        push(target, 0x08, mem);
         __x86_64_linux_machine_syscall(target, mem);
         __x86_64_linux_machine_rax_in_rdi(target, mem);
     }
@@ -1208,13 +1223,19 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
     else if (strcmp(string_name, "munmap") == 0) {
         x86_64_linux_pop_to_tmp(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
-        __x86_64_linux_efficient_pop(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
         // hotfix for swapping rdi and rsi
         // xchg rdi, rsi
         push(target, 0x48, mem);
         push(target, 0x87, mem);
         push(target, 0xfe, mem);
         __x86_64_linux_machine_munmap(target, mem);
+        // get correct i64 value, not a byte-aligned value
+        // imul rsi, 8
+        push(target, 0x48, mem);
+        push(target, 0x6b, mem);
+        push(target, 0xf6, mem);
+        push(target, 0x08, mem);
         __x86_64_linux_machine_syscall(target, mem);
     }
 
@@ -1226,7 +1247,7 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
         // __x86_64_linux_machine_int3(target, mem);
         x86_64_linux_pop_to_tmp(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
-        __x86_64_linux_efficient_pop(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
 
         push(target, 0x48, mem);
         push(target, 0x01, mem);
@@ -1236,10 +1257,20 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
     else if (strcmp(string_name, "sub") == 0) {
         x86_64_linux_pop_to_tmp(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
-        __x86_64_linux_efficient_pop(environment, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
         push(target, 0x48, mem);
         push(target, 0x29, mem);
         push(target, 0xf7, mem);
+    }
+
+    else if (strcmp(string_name, "mul") == 0) {
+        x86_64_linux_pop_to_tmp(environment, mem);
+        __x86_64_linux_machine_rdi_in_rsi(target, mem);
+        x86_64_linux_pop_to_tmp(environment, mem);
+        push(target, 0x48, mem);
+        push(target, 0x0f, mem);
+        push(target, 0xaf, mem);
+        push(target, 0xfe, mem);
     }
 
     else if (strcmp(string_name, "not") == 0) {
@@ -1317,7 +1348,7 @@ fn(void, x86_64_linux_finish, void *_environment) {
     fclose(fd);
 
     // system("ndisasm -b 64 out/x86_64_linux_dump.bin");
-    printf("\n");
+    // printf("\n");
     // system("ndisasm -b 64 out/x86_64_linux_dump_symbc3eolic.bin | " awk_patch);
     fd = fopen("out/x86_64_linux_dump.asm", "w");
     fprintf(fd, "; start: %p\n", function_pointer);
@@ -1326,18 +1357,20 @@ fn(void, x86_64_linux_finish, void *_environment) {
     system("ndisasm -b 64 out/x86_64_linux_dump_symbolic.bin | " awk_patch
            " > out/x86_64_linux_dump_symbolic.asm");
 
-    printf("\n");
+    // printf("\n");
     printf("STACK: %p\n", environment->stacks.main_stack);
     printf("VAR: %p\n", environment->stacks.var_stack);
-    printf("PLACE: %p\n\n", function_pointer);
-    // function_pointer();
+    printf("PLACE: %p\n", function_pointer);
+    function_pointer();
+    var value = __x86_64_linux_get_r15_value();
     // __x86_64_linux_machine_pop_rdi(environment, mem);
     var rdi = (i64 *) __x86_64_linux_get_rdi_value();
     // __x86_64_linux_print_bytecode(target->size, target->array);
-    __x86_64_linux_print_bytecode(
-        target->size, (void *) &((byte *) function_pointer)[ -environment->func_start ]);
+    // __x86_64_linux_print_bytecode(
+    // target->size, (void *) &((byte *) function_pointer)[ -environment->func_start ]);
     printf("\n");
     printf("rdi = %p\n", rdi);
+    printf("r15 = %p\n", (void *) value);
     // *rdi = 2;
     printf("size = %li\n", target->size);
     // printf("*rdi = %li\n", *rdi);
@@ -1378,7 +1411,7 @@ fn(void, x86_64_linux_test_scribe, IR ir, void *_environment) {
 // NOTE: This scribe uses RDI as a temporary register, r10 as the stack pointer, r11 as the stack
 // index, r13 as the stack restore index and r15 as the variable stack index.
 
-// TODO: Implement stack_size in INST_LIST!! VERY IMPORTANT!!
+// TODO: Implement stack_size in INST_LIST!! VERY IMPORTANT!! (Done I think?)
 // TODO: Fix returns and drybacks in a block statement
 
 scribe get_scribe_x86_64_linux() {
@@ -1392,7 +1425,7 @@ scribe get_scribe_x86_64_linux() {
                         .ret_tmp    = x86_64_linux_ret,
                         .dryback    = x86_64_linux_dryback,
                         .constant   = x86_64_linux_const_to_tmp,
-                        .plain_addr = x86_64_linux_addr_plain_to_tmp,
+                        // .plain_addr = x86_64_linux_addr_plain_to_tmp,
                         .deref_addr = x86_64_linux_addr_deref_to_tmp,
                         .set        = x86_64_linux_addr_set_addr_to_tmp,
                         .jmp0       = x86_64_linux_jmp0,

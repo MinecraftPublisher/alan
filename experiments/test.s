@@ -57,10 +57,10 @@ _retract_var:
     sub r15, 0x11223344
 
 _get_var:
-    mov rdi, [r15 - 0x112233447788]
+    mov rdi, [r15 - 0x11223344]
 
 _set_var:
-    mov [r15 - 0x112233447788], rdi
+    mov [r15 - 0x11223344], rdi
 
 _plain_addr_32:
     mov rdi, r15
@@ -68,5 +68,7 @@ _plain_addr_32:
 
 _start:
     mov r15, 0x1122334455667788
+    imul rdi, rsi
+    imul rsi, 8
 
     exit(0)

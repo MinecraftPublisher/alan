@@ -101,10 +101,10 @@ int main(int argc, char **argv) {
     validate((void *) terms, con, scratch);
 
     // Print AST structure
-    for (i32 i = 0; i < terms->size; i++) {
-        print_i(terms->array[ i ], 0, con, 0);
-        printf("\n");
-    }
+    // for (i32 i = 0; i < terms->size; i++) {
+    //     print_i(terms->array[ i ], 0, con, 0);
+    //     printf("\n");
+    // }
 
     // Generate intermediate representation
     var ir = emit((void *) terms, con, scratch);

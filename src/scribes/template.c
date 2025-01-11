@@ -37,7 +37,7 @@ scribe_sub_section(jmp0, i64 where);
 scribe_sub_section(jmpn0, i64 where);
 scribe_sub_section(const_to_tmp, i64 value);
 scribe_sub_section(addr_deref_to_tmp, i64 value, i64 sub_top_format);
-scribe_sub_section(addr_no_deref_to_tmp, i64 value, i64 sub_top_format);
+// scribe_sub_section(addr_no_deref_to_tmp, i64 value, i64 sub_top_format);
 scribe_sub_section(addr_set_addr_to_tmp, i64 value, i64 sub_top_format);
 scribe_sub_section(create_block, i64 name, IR ir);
 scribe_sub_section(run_tests, IR ir);
@@ -57,7 +57,7 @@ typedef struct {
     typeof(__template_scribe_jmpn0)* jmpn0;
     typeof(__template_scribe_const_to_tmp)* constant;
     typeof(__template_scribe_addr_deref_to_tmp)* deref_addr;
-    typeof(__template_scribe_addr_no_deref_to_tmp)* plain_addr;
+    // typeof(__template_scribe_addr_no_deref_to_tmp)* plain_addr;
     typeof(__template_scribe_addr_set_addr_to_tmp)* set;
     typeof(__template_scribe_create_block)* block;
     typeof(__template_scribe_run_tests)* tests;

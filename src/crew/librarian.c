@@ -162,7 +162,7 @@ fn(i, parse_str, ctx con) {
 }
 
 void parse_comment(ctx con) {
-    if (cur() == '#') { while (skip() != '\n' && !eof()); }
+    if (cur() == '#' || (cur() == '/' && cur(1) == '/')) { while (skip() != '\n' && !eof()); }
 }
 
 void parse_whitespace(ctx con) {

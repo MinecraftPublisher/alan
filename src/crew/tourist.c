@@ -207,6 +207,8 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
 
             represent(term->value.call.args->array[ 1 ], scope, name_scope, cur, context, mem);
 
+            cur->stack_size++;
+
             goto END;
         } else if (name == LIST_TYPE) {
             // Initialize a list
@@ -230,6 +232,8 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             }
 
             result.data.icall.ref = real_name;
+
+            cur->stack_size++;
 
             goto END;
         } else if (name == IF_CALL) {
@@ -349,6 +353,8 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
                        + (i64) (name_scope->array[ name_scope->size - 1 ]->size - 1);
             push(scope->compiler_data.reserves, resolved, mem);
 
+            cur->stack_size++;
+
         SET_FINISH:
 
             result.op             = irset;
@@ -384,6 +390,8 @@ fn(void, represent, i term, IR *scope, IR_SCOPE name_scope, INST_LIST cur, ctx c
             error(ir_error, "Argument reference was not found! Is this a bug?");
 
         ARG_FINISH:
+
+            cur->stack_size++;
 
             result.op             = irset;
             result.data.iset.dest = resolved;
@@ -515,8 +523,8 @@ fn(IR, emit, A(i) * term, ctx context) {
                                            .compiler_data = { .reserves = (void *) ret(i64, 0), .context = context } };
     output.compiler_data.reserves = (void *) ret(i64, 0);
 
-    var main_segment = (IR_FUNCTION) { .name = 1, .body = ret(struct INST_LIST) };
-    main_segment.body->list = (void*)ret(IR_INST, 0);
+    var main_segment        = (IR_FUNCTION) { .name = 1, .body = ret(struct INST_LIST) };
+    main_segment.body->list = (void *) ret(IR_INST, 0);
 
     push(output.segments, main_segment, mem);
 

@@ -48,7 +48,8 @@ void cycle(scribe writer, IR_FUNCTION segment, i64 i, IR ir, void* env, Arena* s
             if (name == -1) { error(scribe_error, "Could not find variable name!"); }
 
             if (noderef) {
-                writer.plain_addr(name, my_name, env, scratch);
+                error(scribe_error, "Don't use this!");
+                // writer.plain_addr(name, my_name, env, scratch);
             } else {
                 writer.deref_addr(name, my_name, env, scratch);
             }
