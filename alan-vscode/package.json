@@ -1,0 +1,35 @@
+{
+  "name": "alan-vscode",
+  "displayName": "alan-vscode",
+  "description": "",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "alan",
+        "aliases": [
+          "Alan",
+          "alan"
+        ],
+        "extensions": [
+          ".al"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "alan",
+        "scopeName": "source.alan",
+        "path": "./syntaxes/alan.tmLanguage.json"
+      }
+    ]
+  },
+  "packageManager": "yarn@1.22.22+sha1.ac34549e6aa8e7ead463a7407e1c7390f61a6610"
+}

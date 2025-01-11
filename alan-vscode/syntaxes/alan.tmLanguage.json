@@ -1,0 +1,104 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Alan",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#keys"
+		},
+		{
+			"include": "#comments"
+		},
+		{
+			"include": "#numbers"
+		},
+		{
+			"include": "#stdlib"
+		},
+		{
+			"include": "#semicolon"
+		},
+		{
+			"include": "#words"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control.alan",
+					"match": "\\b(fn|if|unless|while|ret|dryback)\\b"
+				}
+			]
+		},
+		"semicolon": {
+			"patterns": [
+				{
+					"name": "variable.name",
+					"match": ";"
+				}
+			]
+		},
+		"stdlib": {
+			"patterns": [
+				{
+					"name": "entity.name",
+					"match": "\\b(mmap|munmap|tmp|getp|setp|dryback|arg|add|sub|mul|div|and|or|not|inc|inctmp|dec|cmp_gt|cmp_lt|cmp_eq|cmp_ne|cmp_ge|cmp_le|get|len|set)\\b"
+				}
+			]
+		},
+		"words": {
+			"patterns": [
+				{
+					"name": "entity.name.tag",
+					"match": "\\b([_a-zA-Z][_a-zA-Z0-9]*)\\b"
+				}
+			]
+		},
+		"strings": {
+			"name": "string.quoted.double.alan",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.alan",
+					"match": "\\\\."
+				}
+			]
+		},
+		"keys": {
+			"patterns": [
+				{
+					"name": "support.function",
+					"match": "\\b(void|num|list)\\b"
+				}
+			]
+		},
+		"numbers": {
+			"patterns": [{
+				"name": "constant.numeric",
+				"match": "\\b([0-9]+)\\b"
+			}]
+		},
+		"comments": {
+			"patterns": [
+				{
+					"name": "comment",
+					"begin": "#",
+					"end": "$\\n?"
+				},
+				{
+					"name": "comment",
+					"begin": "//",
+					"end": "$\\n?"
+				}
+			]
+		}
+	},
+	"scopeName": "source.alan"
+}
