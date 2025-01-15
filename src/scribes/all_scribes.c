@@ -2,13 +2,13 @@
 
 #include "template.c"
 #include "x86_64_linux.c"
-// #include "../crew/tourist.c"
+#include "../crew/tourist.c"
 
-void cycle(scribe writer, IR_FUNCTION segment, i64 i, IR ir, void* env, Arena* scratch) {
+void cycle(scribe writer, IR_FUNCTION segment, i64 i, IR ir, void* env, Arena* scratch, ctx context) {
     writer.block(i, ir, env, scratch);
 
-    for (i64 j = 0; j < segment.body->list->size; j++) {
-        var instruction = segment.body->list->array[ j ];
+    for (i64 j = 0; j < segment.block->list->size; j++) {
+        var instruction = segment.block->list->array[ j ];
 
         if (instruction.op == iruseless) {
             writer.useless(env, scratch);
@@ -83,17 +83,17 @@ void populate(scribe writer, IR ir, ctx context) {
     for (i64 i = 0; i < ir.segments->size; i++) {
         var segment = ir.segments->array[ i ];
 
-        if (segment.body == null) continue;
-        if (segment.body->list->size == 0) continue;
+        if (segment.block == null) continue;
+        if (segment.block->list->size == 0) continue;
         if (segment.name == 1) {
             main_segment = i;
             continue;
         }
 
-        cycle(writer, segment, i, ir, env, scratch);
+        cycle(writer, segment, i, ir, env, scratch, context);
     }
 
-    if(main_segment != -1) cycle(writer, ir.segments->array[ main_segment ], main_segment, ir, env, scratch);
+    if(main_segment != -1) cycle(writer, ir.segments->array[ main_segment ], main_segment, ir, env, scratch, context);
 
     writer.finish(env, scratch);
     release();

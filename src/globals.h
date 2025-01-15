@@ -8,6 +8,7 @@ const var scribe_error   = (void *) -3;
 const var ir_error       = (void *) -2;
 const var analyzer_error = (void *) -1;
 
+// TODO: Setting this to anything below OPT_BASIC causes a segfault. Figure out why!
 // zero shows maximum optimization level. sacrifice compile-time for run-time.
 const enum {
     OPT_AGGRESSIVE = 0,

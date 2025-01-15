@@ -67,8 +67,12 @@ _plain_addr_32:
     add rdi, 0x11223344
 
 _start:
-    mov r15, 0x1122334455667788
-    imul rdi, rsi
-    imul rsi, 8
+    mov rax, 0x1122334455667788
+    mov [rax], rdi
+    cmp r11, -1
+    not rdi
+
+    mov rdi, 0x1122334455667788
+    mov rdi, [rdi]
 
     exit(0)

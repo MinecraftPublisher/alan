@@ -171,7 +171,8 @@ typedef struct INST_LIST {
 
 typedef struct {
     symbol name;
-    INST_LIST body;
+    symbol parent;
+    INST_LIST block;
 } IR_FUNCTION;
 
 struct compiler_data {
@@ -186,7 +187,6 @@ typedef struct {
 
     i32 inst_count;
     i32 main_segment;
-    i32 global_name_scope_id;
 
     struct compiler_data compiler_data;
 } IR;
