@@ -123,7 +123,7 @@ fn(void, tourist, IR scope, ctx context) {
         scope.segments->size - skip_segments - stdlib_size,
         stdlib_size);
 
-    printf("== Literals ==\n");
+    /*printf("== Literals ==\n");
     for (i32 i = 0; i < scope.literals->size; i++) {
         var item = scope.literals->array[ i ];
         scope.compiler_data.data_size += item.type == ir_lnum ? 0 : item.value.string.size;
@@ -134,7 +134,7 @@ fn(void, tourist, IR scope, ctx context) {
             item.type == ir_lstr ? "\"" : "",
             item.type == ir_lstr ? item.value.string.array : ltoa(item.value.number, scratch),
             item.type == ir_lstr ? "\"" : "");
-    }
+    }*/
 
     release();
 }

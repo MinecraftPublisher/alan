@@ -1144,7 +1144,7 @@ fn(i32, __x86_64_linux_calculate_var_offset, i64 sub_top_index, x86_64_linux_env
 
     total -= sub_index;
 
-    printf("input 0x%lX output %li\n", sub_top_index, total);
+    // printf("input 0x%lX output %li\n", sub_top_index, total);
     return total * 8;
 }
 
@@ -1413,8 +1413,8 @@ fn(void, x86_64_linux_finish, void *_environment) {
     // __x86_64_linux_machine_pop_rdi(environment, mem);
     var rdi = (i64 *) __x86_64_linux_get_rdi_value();
     // __x86_64_linux_print_bytecode(target->size, target->array);
-    __x86_64_linux_print_bytecode(
-        target->size, (void *) &((byte *) function_pointer)[ -environment->func_start ]);
+    // __x86_64_linux_print_bytecode(
+        // target->size, (void *) &((byte *) function_pointer)[ -environment->func_start ]);
     printf("\n");
     printf("rdi = %p\n", rdi);
     printf("r15 = %p\n", (void *) value);
