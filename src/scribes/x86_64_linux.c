@@ -237,10 +237,10 @@ fn(void, __x86_64_linux_put_pointer, i64 put_in, i64 value, indexes replace_poin
 
 fn(void, __x86_64_linux_machine_rdi_in_ptr, i64 ptr, bytecode target, indexes replace_pointers) {
     if (ptr >= 1) {
-        // mov rdi, ptr
-        // mov rdi, [rdi]
+        // mov rax, ptr
+        // mov [rax], rdi
         __x86_64_linux_put_pointer(target->size + 2, ptr - 1, replace_pointers, mem);
-        __x86_64_linux_machine_rax(ptr - 1, target, mem);
+        __x86_64_linux_machine_rax(((i64) target->array) + ptr - 1, target, mem);
         push(target, 0x48, mem);
         push(target, 0x89, mem);
         push(target, 0x38, mem);
@@ -277,13 +277,13 @@ fn(void, __x86_64_linux_machine_ptr_in_rdi, i64 ptr, bytecode target, indexes re
     }
 
     if (ptr >= 1) {
-        // mov rax, ptr
-        // mov [rax], rdi
+        // mov rdi, ptr
+        // mov rdi, [rdi]
         __x86_64_linux_put_pointer(target->size + 2, ptr - 1, replace_pointers, mem);
-        __x86_64_linux_machine_rax(((i64) target->array) + ptr - 1, target, mem);
+        __x86_64_linux_machine_rdi(ptr - 1, target, mem);
         push(target, 0x48, mem);
-        push(target, 0x89, mem);
-        push(target, 0x38, mem);
+        push(target, 0x8b, mem);
+        push(target, 0x3f, mem);
     } else { // read from offset stack
         // mov rdi, [_ptr + r15]
         push(target, 0x49, mem);
@@ -1124,12 +1124,14 @@ fn(void, x86_64_linux_jmpn0, i64 where, void *_environment) {
     __x86_64_linux_machine_jmpn0(-where, environment->target, environment->replace_pointers, mem);
 }
 
+// OPTIMIZATION: Turn `CONST 1; SET 1x...` into `mov [r15-addr], 1`
+
 fn(i32, __x86_64_linux_calculate_var_offset, i64 sub_top_index, x86_64_linux_env environment) {
     var sub_index = sub_top_index & 0xFFFFFFFF;
     var top_index = sub_top_index >> 32;
 
     if (top_index == 0) {
-        // printf("gvar: %li\n", sub_index);
+        // printf("%lX gvar: %li\n", sub_top_index, sub_index);
 
         return sub_index * 8 + 1;
     }
@@ -1144,7 +1146,7 @@ fn(i32, __x86_64_linux_calculate_var_offset, i64 sub_top_index, x86_64_linux_env
 
     total -= sub_index;
 
-    // printf("input 0x%lX output %li\n", sub_top_index, total);
+    printf("input 0x%lX output %li\n", sub_top_index, total);
     return total * 8;
 }
 
@@ -1413,8 +1415,8 @@ fn(void, x86_64_linux_finish, void *_environment) {
     // __x86_64_linux_machine_pop_rdi(environment, mem);
     var rdi = (i64 *) __x86_64_linux_get_rdi_value();
     // __x86_64_linux_print_bytecode(target->size, target->array);
-    // __x86_64_linux_print_bytecode(
-        // target->size, (void *) &((byte *) function_pointer)[ -environment->func_start ]);
+    __x86_64_linux_print_bytecode(
+        target->size, (void *) &((byte *) function_pointer)[ -environment->func_start ]);
     printf("\n");
     printf("rdi = %p\n", rdi);
     printf("r15 = %p\n", (void *) value);

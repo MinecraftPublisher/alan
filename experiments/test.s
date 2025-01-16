@@ -67,6 +67,9 @@ _plain_addr_32:
     add rdi, 0x11223344
 
 _start:
+    mov [rax], rdi
+    mov rdi, [rdi]
+
     mov rax, 0x1122334455667788
     mov [rax], rdi
     cmp r11, -1

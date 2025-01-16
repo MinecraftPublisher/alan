@@ -1,33 +1,33 @@
 // // Proposed syntax:
 // let ptr = mmap 32;
 
-fn void memcpy [
-    arg num src;
-    arg num dst;
-    arg num size;
+// fn void memcpy [
+//     arg num src;
+//     arg num dst;
+//     arg num size;
 
-    set i 0;
+//     set i 0;
 
-    while [ sub size i ] [
-        set src_ptr [ add src i ];
-        set dst_ptr [ add dst i ];
+//     while [ sub size i ] [
+//         set src_ptr [ add src i ];
+//         set dst_ptr [ add dst i ];
 
-        setp dst_ptr [ getp src_ptr ];
+//         setp dst_ptr [ getp src_ptr ];
 
-        set i [ add i 1 ];
-    ];
-];
+//         set i [ add i 1 ];
+//     ];
+// ];
 
-fn num mremap [
-    arg num src;
-    arg num size;
+// fn num mremap [
+//     arg num src;
+//     arg num size;
 
-    set new [ mmap size ];
-    memcpy src new size;
-    munmap src size;
+//     set new [ mmap size ];
+//     memcpy src new size;
+//     munmap src size;
 
-    dryback new;
-];
+//     dryback new;
+// ];
 
 set area_size 4096;
 
@@ -52,4 +52,5 @@ fn num alloc_experiment [
 ];
 
 set output [ alloc_experiment 100 ];
-tmp output;
+setp arena_list_ptr 3;
+getp arena_list_ptr;

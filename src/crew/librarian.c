@@ -8,13 +8,13 @@
 #include "../utils.h"
 
 fn(symbol, parse_ref_str, ctx con) {
-    if (!is_ref_firstchar(cur())) return -1;
+    if (!is_ref_firstchar(_cur())) return -1;
     ground();
 
     var result         = (string *) ret(char, 1);
     result->array[ 0 ] = skip();
 
-    while (is_refchar(cur())) { push(result, skip(), mem); }
+    while (is_refchar(_cur())) { push(result, skip(), mem); }
 
     push(result, nullchar, mem);
 
@@ -52,7 +52,7 @@ fn(i, parse_ref, ctx con) {
 }
 
 fn(i, parse_char, ctx con) {
-    if (cur() != '\'') return null;
+    if (_cur() != '\'') return null;
     debug(char);
 
     skip();
@@ -67,14 +67,14 @@ fn(i, parse_char, ctx con) {
 }
 
 fn(i, parse_num, ctx con) {
-    if (!is_num(cur())) return null;
+    if (!is_num(_cur())) return null;
     ground();
     debug(num);
 
     var txt = new (char, 0);
     push(txt, skip(), scratch);
 
-    while (is_num(cur())) push(txt, skip(), scratch);
+    while (is_num(_cur())) push(txt, skip(), scratch);
 
     i val = ret(struct i);
 
@@ -105,7 +105,7 @@ fn(i, parse_num, ctx con) {
 }
 
 fn(i, parse_str, ctx con) {
-    if (cur() != '"') return null;
+    if (_cur() != '"') return null;
     ground();
     debug(str);
 
@@ -113,8 +113,8 @@ fn(i, parse_str, ctx con) {
     skip();
     // push(txt, &skip(), scratch);
 
-    while ((cur() != '"' || ((con->str.array[ con->current - 1 ]) == '\\')) && !eof()) {
-        if (cur() == '"' && ((con->str.array[ con->current - 1 ]) == '\\')) {
+    while ((_cur() != '"' || ((con->str.array[ con->current - 1 ]) == '\\')) && !eof()) {
+        if (_cur() == '"' && ((con->str.array[ con->current - 1 ]) == '\\')) {
             txt->array[ txt->size - 1 ] = '"';
             skip();
         } else {
@@ -122,7 +122,7 @@ fn(i, parse_str, ctx con) {
         }
     }
 
-    if (eof() && cur() != '"') {
+    if (eof() && _cur() != '"') {
         error(con, "Expected closing \" when parsing string, but got end-of-file instead...");
     }
 
@@ -162,14 +162,14 @@ fn(i, parse_str, ctx con) {
 }
 
 void parse_comment(ctx con) {
-    if (cur() == '#' || (cur() == '/' && cur(1) == '/')) { while (skip() != '\n' && !eof()); }
+    if (_cur() == '#' || (_cur() == '/' && _cur(1) == '/')) { while (skip() != '\n' && !eof()); }
 }
 
 void parse_whitespace(ctx con) {
-    var c = cur();
+    var c = _cur();
     while ((c == ' ' || c == '\t' || c == '\n')) {
         skip();
-        c = cur();
+        c = _cur();
     }
 }
 
@@ -184,7 +184,7 @@ void parse_null(ctx con) {
 }
 
 fn(i, parse_embd, ctx con) {
-    if (cur() != '{') return null;
+    if (_cur() != '{') return null;
     ground();
     debug(embed);
 
@@ -196,9 +196,9 @@ fn(i, parse_embd, ctx con) {
     var result = (string *) new (char, 0);
 
     i32 depth = 0;
-    while (cur() != '}' || cur(1) != '}' || depth > 0) {
-        if (cur() == '{') depth++;
-        if (cur() == '}') depth--;
+    while (_cur() != '}' || _cur(1) != '}' || depth > 0) {
+        if (_cur() == '{') depth++;
+        if (_cur() == '}') depth--;
         push(result, skip(), mem);
     }
 
@@ -271,7 +271,7 @@ fn(i, parse_call, ctx con) {
 }
 
 fn(i, parse_block, ctx con) {
-    if (cur() != '[') return null;
+    if (_cur() != '[') return null;
     debug(block);
     skip();
 
@@ -285,11 +285,11 @@ fn(i, parse_block, ctx con) {
 
     parse_null(con);
 
-    while (cur() != ']') {
+    while (_cur() != ']') {
         parse_null(con);
 
         if (!start && !removed_semi) {
-            if (cur() != ';') error(con, "Expected semicolon after action inside block...");
+            if (_cur() != ';') error(con, "Expected semicolon after action inside block...");
 
             skip();
             parse_null(con);
@@ -299,11 +299,11 @@ fn(i, parse_block, ctx con) {
 
         var ex = parse_call(con, mem);
         if (ex != null) push(val->value.block.items, ex, mem);
-        else if (cur() != ']') { error(con, "Expected expression inside block..."); }
+        else if (_cur() != ']') { error(con, "Expected expression inside block..."); }
 
         parse_null(con);
 
-        if (cur() == ';') {
+        if (_cur() == ';') {
             skip();
             removed_semi = 1;
         }
@@ -355,7 +355,7 @@ fn(i, parse_fn, ctx con) {
 
     parse_null(con);
 
-    if (cur() != ';') error(con, "Expected semicolon at the end of a function declaration...");
+    if (_cur() != ';') error(con, "Expected semicolon at the end of a function declaration...");
 
     i val = ret(struct i);
 

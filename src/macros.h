@@ -48,7 +48,7 @@
         arr->array[ arr->size - 1 ] = data;                                                        \
     })
 
-#define cur(...) (eof() ? 0 : (con->str.array[ con->current __VA_OPT__(+) __VA_ARGS__ ]))
+#define _cur(...) (eof() ? 0 : (con->str.array[ con->current __VA_OPT__(+) __VA_ARGS__ ]))
 #define skip()   (con->str.array[ con->current++ ])
 #define eof()    (con->str.size - 1 <= con->current)
 
