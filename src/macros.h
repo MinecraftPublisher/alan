@@ -2,6 +2,8 @@
 
 //
 
+#define deref(x) (*x)
+
 #define p_cat(a, b) a##b
 #define cat(a, b)   p_cat(a, b)
 #define A(type)                                                                                    \

@@ -219,8 +219,6 @@ fn(void, represent, i64 parent, i trm, IR *scope, IR_SCOPE names, INST_LIST cur,
             represent(parent, trm->value.call.args->array[ 0 ], scope, names, cur, ctx, mem);
 
             var resolved = llabs(cur->list->array[ cur->list->size - 1 ].data.iaddr.value);
-            var subindex = (resolved << 32) >> 32;
-            var topindex = resolved >> 32;
             push(scope->compiler_data.reserves, resolved, mem);
 
             result.op = ircall;
@@ -238,14 +236,12 @@ fn(void, represent, i64 parent, i trm, IR *scope, IR_SCOPE names, INST_LIST cur,
 
             goto END;
         } else if (name == IF_CALL) {
-            var seg_name  = scope->segments->size;
-            var me        = (IR_FUNCTION) { .name = -seg_name, .parent = parent, .block = cur };
-            var new_scope = (IR_SCOPE_ARRAY) ret(i32, 0);
-            if (parser_optimizations <= OPT_BASIC) {
-                me.block       = ret(struct INST_LIST);
-                me.block->list = (void *) ret(IR_INST, 0);
-                push(scope->segments, me, mem);
-            }
+            var         seg_name  = scope->segments->size;
+            IR_FUNCTION me        = { .name = -seg_name, .parent = parent, .block = cur };
+            var         new_scope = (IR_SCOPE_ARRAY) ret(i32, 0);
+            me.block              = ret(struct INST_LIST);
+            me.block->list        = (void *) ret(IR_INST, 0);
+            push(scope->segments, me, mem);
 
             var my_scope = (IR_SCOPE) copy(names, mem);
             push(my_scope, new_scope, mem);
@@ -267,14 +263,12 @@ fn(void, represent, i64 parent, i trm, IR *scope, IR_SCOPE names, INST_LIST cur,
 
             goto END;
         } else if (name == UNLESS_CALL) {
-            var seg_name = scope->segments->size;
-            var me = (IR_FUNCTION) { .name = -seg_name, .parent = parent, .block = (void *) cur };
-            var new_scope = (IR_SCOPE_ARRAY) ret(i32, 0);
-            if (parser_optimizations <= OPT_BASIC) {
-                me.block       = ret(struct INST_LIST);
-                me.block->list = (void *) ret(IR_INST, 0);
-                push(scope->segments, me, mem);
-            }
+            var         seg_name  = scope->segments->size;
+            IR_FUNCTION me        = { .name = -seg_name, .parent = parent, .block = (void *) cur };
+            var         new_scope = (IR_SCOPE_ARRAY) ret(i32, 0);
+            me.block              = ret(struct INST_LIST);
+            me.block->list        = (void *) ret(IR_INST, 0);
+            push(scope->segments, me, mem);
 
             var my_scope = (IR_SCOPE) copy(names, mem);
             push(my_scope, new_scope, mem);
@@ -296,12 +290,10 @@ fn(void, represent, i64 parent, i trm, IR *scope, IR_SCOPE names, INST_LIST cur,
         } else if (name == WHILE_CALL) {
             var seg_name = scope->segments->size;
             var me = (IR_FUNCTION) { .name = -seg_name, .parent = parent, .block = (void *) cur };
-            var new_scope = (IR_SCOPE_ARRAY) ret(i32, 0);
-            if (parser_optimizations <= OPT_BASIC) {
-                me.block       = ret(struct INST_LIST);
-                me.block->list = (void *) ret(IR_INST, 0);
-                push(scope->segments, me, mem);
-            }
+            var new_scope  = (IR_SCOPE_ARRAY) ret(i32, 0);
+            me.block       = ret(struct INST_LIST);
+            me.block->list = (void *) ret(IR_INST, 0);
+            push(scope->segments, me, mem);
 
             var my_scope = (IR_SCOPE) copy(names, mem);
             push(my_scope, new_scope, mem);
@@ -364,6 +356,7 @@ fn(void, represent, i64 parent, i trm, IR *scope, IR_SCOPE names, INST_LIST cur,
             goto END;
         } else if (name == ARG_TYPE) {
             // FIXME
+            // What's broken?
             var pop_stack = (IR_INST) { .op = irpop, .data.ipop = {} };
 
             push(cur->list, pop_stack, mem);
@@ -433,36 +426,8 @@ fn(void, represent, i64 parent, i trm, IR *scope, IR_SCOPE names, INST_LIST cur,
 
         result.data.icall.ref = real_name;
     } else if (trm->type == tcode) {
-        if (trm->value.block.items->size >= 16 || parser_optimizations > OPT_BASIC) {
-            var seg_name = scope->segments->size;
-            var me       = (IR_FUNCTION) { .name   = -seg_name,
-                                           .parent = parent,
-                                           .block  = ret(struct INST_LIST) };
-            push(scope->segments, me, mem);
-
-            var new_scope = (IR_SCOPE_ARRAY) ret(i32, 0);
-            var my_scope  = (IR_SCOPE) copy(names, mem);
-            push(my_scope, new_scope, mem);
-
-            for (i32 i = 0; i < trm->value.block.items->size; i++) {
-                represent(
-                    seg_name,
-                    trm->value.block.items->array[ i ],
-                    scope,
-                    my_scope,
-                    (INST_LIST) me.block,
-                    ctx,
-                    mem);
-            }
-
-            result.op             = ircall;
-            result.data.icall.ref = seg_name;
-        } else {
-            for (i32 i = 0; i < trm->value.block.items->size; i++) {
-                represent(parent, trm->value.block.items->array[ i ], scope, names, cur, ctx, mem);
-            }
-
-            // result.op = irnop;
+        for (i32 i = 0; i < trm->value.block.items->size; i++) {
+            represent(parent, trm->value.block.items->array[ i ], scope, names, cur, ctx, mem);
         }
     } else if (trm->type == tfn) {
         var my_segment         = (IR_FUNCTION) { .name   = trm->value.fn.name,

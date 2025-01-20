@@ -41,7 +41,7 @@ scribe_sub_section(addr_deref_to_tmp, i64 value, i64 sub_top_format);
 scribe_sub_section(addr_set_addr_to_tmp, i64 value, i64 sub_top_format);
 scribe_sub_section(create_block, i64 name, IR ir);
 scribe_sub_section(run_tests, IR ir);
-scribe_sub_section(cycle);
+scribe_sub_section(cycle, IR_INST inst, IR_FUNCTION segment);
 scribe_sub_section(finish);
 fn(void*, __template_scribe_init_env, IR ir);
 

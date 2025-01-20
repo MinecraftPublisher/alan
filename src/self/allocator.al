@@ -1,5 +1,7 @@
-// // Proposed syntax:
-// let ptr = mmap 32;
+// // // Proposed syntax:
+// // let ptr = mmap 32;
+
+// // TODO: Replace variables if they're only used once
 
 // fn void memcpy [
 //     arg num src;
@@ -9,11 +11,8 @@
 //     set i 0;
 
 //     while [ sub size i ] [
-//         set src_ptr [ add src i ];
-//         set dst_ptr [ add dst i ];
-
-//         setp dst_ptr [ getp src_ptr ];
-
+//         // dst[i] = src[i]
+//         setp [ add dst i ] [ getp [ add src i ] ];
 //         set i [ add i 1 ];
 //     ];
 // ];
@@ -29,28 +28,54 @@
 //     dryback new;
 // ];
 
-set area_size 4096;
+// set area_size 4096;
 
-// arena_list memory section contains the list of arenas
-// each arena's first element is its number of blocks, then the data for each block.
-// a block has a size, a free value and an address, so 3 elements per block in the 1d array.
-set arena_list_ptr 0;
-set arena_list_size 0;
+// // arena_list memory section contains the list of arenas
+// // each arena's first element is its number of blocks, then the data for each block.
+// // a block has a size, a free value and an address, so 3 elements per block in the 1d array.
+// set arena_list_ptr 0;
+// set arena_list_size 0;
 
-fn num alloc_experiment [
-    arg num _size;
-    set size [ add _size 1 ]; // first element is the array length. 
+// // block[3]: [ int size, int cur, int* ptr ]
+// // arena[1+n]:: [ int count, block* list ]
+// // arena_list[1+n]: [ int count, arena* list ]
 
-    set is_not_init [ not arena_list_ptr ];
+// set check 9;
 
-    if is_not_init [
-        set arena_list_size [ add 1 3 ];
-        set arena_list_ptr [ mmap arena_list_size ];
-    ];
+// fn num arena_alloc [
+//     arg num _size;
+//     set size _size;
 
-    dryback size;
+//     // initialize the arena list
+//     if [ not arena_list_ptr ] [
+//         set arena_list_size 2; // elements are split into groups of two, 
+//         // irst item of those is the arena's length and the next is the block list pointer.
+//         set arena_list_ptr [ mmap arena_list_size ];
+
+//         // it would be wayyy better if i didn't allocate any arenas when starting...
+//         setp arena_list_ptr 1; // allocate one arena with one block in it for starters.
+//         set arena_ptr [ add arena_list_ptr 8 ];
+//         setp arena_ptr 1;
+//         set block_ptr [ add arena_ptr 8 ]; // also block_size_ptr
+//         set block_cur_ptr [ add block_ptr 8 ];
+//         setp [ add block_ptr 16 ] [ mmap area_size ];
+
+//         setp block_ptr area_size;
+//         setp block_cur_ptr 0;
+//     ];
+
+//     dryback size;
+// ];
+
+// tmp [ arena_alloc 100 ];
+
+fn num test1 [
+    set x 1;
+
+    if 1 [ set x 2 ];
+    if 0 [ set x 3 ];
+
+    dryback x;
 ];
 
-set output [ alloc_experiment 100 ];
-setp arena_list_ptr 3;
-getp arena_list_ptr;
+tmp [ test1 ];

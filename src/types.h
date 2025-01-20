@@ -8,13 +8,14 @@
 void dump_stack();
 
 typedef unsigned char byte;
-typedef int32_t       i32;
-typedef int64_t       i64;
+typedef byte bool;
+typedef int32_t i32;
+typedef int64_t i64;
 
 typedef struct Array {
-    uint64_t   size;
-    i32   unit;
-    byte *array;
+    uint64_t size;
+    i32      unit;
+    byte    *array;
 } *Array;
 
 typedef struct Block {
@@ -100,14 +101,13 @@ typedef i32 iaddress;
 typedef i64 complexsym;
 
 typedef struct {
-    uint64_t  size;
-    i32  unit;
-    i32 *array;
+    uint64_t size;
+    i32      unit;
+    i32     *array;
 } *IR_SCOPE_ARRAY;
 typedef A(IR_SCOPE_ARRAY) * IR_SCOPE;
 
 typedef struct {
-    // TODO: Add more features so that bulit-in functions can be represented in the IR.
     enum {
         iruseless,
         irpop,
@@ -165,13 +165,13 @@ typedef struct {
 } IR_LITERAL;
 
 typedef struct INST_LIST {
-    A(IR_INST)* list;
+    A(IR_INST) * list;
     i64 stack_size;
-} * INST_LIST;
+} *INST_LIST;
 
 typedef struct {
-    symbol name;
-    symbol parent;
+    symbol    name;
+    symbol    parent;
     INST_LIST block;
 } IR_FUNCTION;
 

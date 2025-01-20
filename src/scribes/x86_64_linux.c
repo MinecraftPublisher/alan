@@ -53,6 +53,9 @@ typedef struct x86_64_linux_env {
 
     i64 last_push_index;
 
+    IR_INST     instruction;
+    IR_FUNCTION segment;
+
     struct {
         i64 *main_stack;
         i64 *restore_main_stack;
@@ -343,14 +346,8 @@ fn(void, __x86_64_linux_machine_r9d, i64 value, bytecode target) {
 
 // TO BE IMPROVED: Make this calculate offsets ffs!
 fn(void, __x86_64_linux_machine_jmp0, i64 where, bytecode target, indexes replace_pointers) {
-    // RBX contains the actual jump location, whilst RCX contains the address right after the JMP.
-    // cmove moves rcx into rbx when rax is zero.
-
     var rbx_place = target->size + 2;
     __x86_64_linux_machine_rbx(where, target, mem);
-
-    var rcx_place = target->size + 2;
-    __x86_64_linux_machine_rcx(-target->size, target, mem);
 
     // cmp rdi, 0
     push(target, 0x48, mem);
@@ -358,28 +355,24 @@ fn(void, __x86_64_linux_machine_jmp0, i64 where, bytecode target, indexes replac
     push(target, 0xff, mem);
     push(target, 0x00, mem);
 
-    // cmovne rcx, rbx
-    push(target, 0x48, mem);
+    // jne continue (+0x6)
     push(target, 0x0f, mem);
-    push(target, 0x45, mem);
-    push(target, 0xd9, mem);
+    push(target, 0x85, mem);
+    push(target, 0x02, mem);
+    push(target, 0x00, mem);
+    push(target, 0x00, mem);
+    push(target, 0x00, mem);
 
     // call rbx
     push(target, 0xff, mem);
     push(target, 0xd3, mem);
 
-    __x86_64_linux_put_pointer(rcx_place, target->size, replace_pointers, mem);
     __x86_64_linux_put_pointer(rbx_place, where, replace_pointers, mem);
 }
 
 fn(void, __x86_64_linux_machine_jmpn0, i64 where, bytecode target, indexes replace_pointers) {
-    // RBX contains the actual jump location, whilst RCX contains the address right after the JMP.
-
     var rbx_place = target->size + 2;
     __x86_64_linux_machine_rbx(where, target, mem);
-
-    var rcx_place = target->size + 2;
-    __x86_64_linux_machine_rcx(where, target, mem);
 
     // cmp rdi, 0
     push(target, 0x48, mem);
@@ -387,17 +380,18 @@ fn(void, __x86_64_linux_machine_jmpn0, i64 where, bytecode target, indexes repla
     push(target, 0xff, mem);
     push(target, 0x00, mem);
 
-    // cmove rcx, rbx
-    push(target, 0x48, mem);
+    // je continue (+0x6)
     push(target, 0x0f, mem);
-    push(target, 0x44, mem);
-    push(target, 0xd9, mem);
+    push(target, 0x84, mem);
+    push(target, 0x02, mem);
+    push(target, 0x00, mem);
+    push(target, 0x00, mem);
+    push(target, 0x00, mem);
 
     // call rbx
     push(target, 0xff, mem);
     push(target, 0xd3, mem);
 
-    __x86_64_linux_put_pointer(rcx_place, target->size, replace_pointers, mem);
     __x86_64_linux_put_pointer(rbx_place, where, replace_pointers, mem);
 }
 
@@ -670,6 +664,7 @@ fn(void, __x86_64_linux_machine_pop_restore_r11, struct x86_64_linux_env *enviro
 // TODO: MAKE THESE GUYS BOUND CHECK!!!
 
 fn(void, __x86_64_linux_machine_extend_r15, i64 offset, struct x86_64_linux_env *environment) {
+    printf("up r15 %li\n", offset);
     var target = environment->target;
     if (offset == 0) return;
 
@@ -681,6 +676,7 @@ fn(void, __x86_64_linux_machine_extend_r15, i64 offset, struct x86_64_linux_env 
 }
 
 fn(void, __x86_64_linux_machine_retract_r15, i64 offset, struct x86_64_linux_env *environment) {
+    printf("down r15 %li\n", offset);
     ground();
     var target = environment->target;
     if (offset == 0) return;
@@ -690,6 +686,7 @@ fn(void, __x86_64_linux_machine_retract_r15, i64 offset, struct x86_64_linux_env
     var env            = new (struct x86_64_linux_env);
     env->target        = simulated_push;
     env->stacks        = environment->stacks;
+    printf("fake\n");
     __x86_64_linux_machine_extend_r15(offset, env, scratch);
 
     if (target->size > env->target->size) {
@@ -911,8 +908,10 @@ fn(void, x86_64_linux_useless, void *_environment) {
     // nothing to do.
 }
 
-fn(void, x86_64_linux_cycle, void *_environment) {
-    // var target = ((x86_64_linux_env) _environment)->target;
+fn(void, x86_64_linux_cycle, IR_INST inst, IR_FUNCTION segment, void *_environment) {
+    var environment          = ((x86_64_linux_env) _environment);
+    environment->instruction = inst;
+    environment->segment     = segment;
     // push(target, 0x66, mem);
     // push(target, 0x90, mem);
 }
@@ -1033,8 +1032,6 @@ fn(void, x86_64_linux_pop_to_tmp, void *_environment) {
                 (char *) &target->array[ target->size - env->target->size ],
                 env->target->size)
             == 0) {
-            var sim_one = env->replace_pointers->array[ 0 ];
-
             for (i64 i = 0; i < environment->replace_pointers->size; i++) {
                 var rep_ptr = &environment->replace_pointers->array[ i ];
                 var dest    = target->size - env->target->size + 2;
@@ -1044,7 +1041,6 @@ fn(void, x86_64_linux_pop_to_tmp, void *_environment) {
 
             extend((Array) target, -env->target->size, mem);
 
-            // target->size = environment->last_push_index;
             release();
             return;
         }
@@ -1053,7 +1049,6 @@ fn(void, x86_64_linux_pop_to_tmp, void *_environment) {
     }
 
     __x86_64_linux_machine_call(environment->pop_ptr, target, environment->replace_pointers, mem);
-    // x86_64_linux_debug(environment, mem);
     release();
 }
 
@@ -1061,27 +1056,6 @@ fn(void, x86_64_linux_ret, void *_environment) {
     sdebug(ret);
     ground();
     var environment = (x86_64_linux_env) _environment;
-    var target      = environment->target;
-
-    // If previous instruction is a ret, just remove it and don't add this one.
-    var simulated_ret = (bytecode) new (byte, 0);
-    var env           = new (struct x86_64_linux_env);
-    env->target       = simulated_ret;
-    env->stacks       = environment->stacks;
-    __x86_64_linux_machine_ret(env, 1, scratch);
-
-    // if (target->size > env->target->size) {
-    //     if (strncmp(
-    //             (char *) env->target->array,
-    //             (char *) &target->array[ target->size - env->target->size ],
-    //             env->target->size)
-    //         == 0) {
-    //         release();
-    //         return;
-    //     }
-    // } else {
-    //     release();
-    // }
 
     // TODO: Add memory cleanup and persistence after I implement the memory safety
     // Mechanism:
@@ -1138,15 +1112,15 @@ fn(i32, __x86_64_linux_calculate_var_offset, i64 sub_top_index, x86_64_linux_env
 
     i64 total = 0;
 
-    var ptr = environment->ir.segments->array[ environment->cur_block_index ];
-    while (ptr.parent != -1 && ptr.name != top_index) {
-        ptr = environment->ir.segments->array[ ptr.parent ];
-        total -= ptr.block->stack_size;
-    }
+    var blocks = environment->segment.block->list;
+    var scope  = blocks->array[ blocks->size - 1 ].scope;
 
+    for (i64 i = scope->size - 1; i >= top_index; i--) { total -= scope->array[ i ]->size; }
+
+    // total += scope->array[top_index]->size - sub_index;
     total -= sub_index;
 
-    printf("input 0x%lX output %li\n", sub_top_index, total);
+    printf("input 0x%lX output %li cur %li\n", sub_top_index, total, scope->size - 1);
     return total * 8;
 }
 
@@ -1342,6 +1316,8 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
     }
 
     else if (strcmp(string_name, "setp") == 0) {
+        // setp address value
+
         // value
         x86_64_linux_pop_to_tmp(environment, mem);
         __x86_64_linux_machine_rdi_in_rsi(target, mem);
@@ -1369,9 +1345,8 @@ fn(void, x86_64_linux_call, i64 name, IR ir, void *_environment) {
 
 fn(void, x86_64_linux_finish, void *_environment) {
     sdebug(fin.);
-    var environment      = (x86_64_linux_env) _environment;
-    var target           = environment->target;
-    var replace_pointers = environment->replace_pointers;
+    var environment = (x86_64_linux_env) _environment;
+    var target      = environment->target;
 
     __x86_64_linux_machine_ret(environment, 0, mem);
 
@@ -1409,7 +1384,7 @@ fn(void, x86_64_linux_finish, void *_environment) {
 
     printf("STACK: %p\n", environment->stacks.main_stack);
     printf("VAR: %p\n", environment->stacks.var_stack);
-    printf("PLACE: %p\n", function_pointer);
+    printf("PLACE: %p\n\n", function_pointer);
     function_pointer();
     var value = __x86_64_linux_get_r15_value();
     // __x86_64_linux_machine_pop_rdi(environment, mem);
@@ -1427,9 +1402,8 @@ fn(void, x86_64_linux_finish, void *_environment) {
 
 fn(void, x86_64_linux_test_scribe, IR ir, void *_environment) {
     sdebug(run test scribe);
-    var environment      = (x86_64_linux_env) _environment;
-    var target           = environment->target;
-    var replace_pointers = environment->replace_pointers;
+    var environment = (x86_64_linux_env) _environment;
+    var target      = environment->target;
     ground();
 
     // Used for separating preprocessing values

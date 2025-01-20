@@ -1,4 +1,4 @@
-all: clean build count measure
+all: clean hell build count measure
 
 FILE = src/self/allocator.al
 MAIN_SRC = src/alan.c
@@ -8,6 +8,8 @@ OUTPUT_FILE = alan
 clean:
 	rm -rf $(OUTPUT_FOLDER)
 	mkdir $(OUTPUT_FOLDER)
+
+# TODO: Figure out why address sanitizer breaks the program at arena_free
 
 build:
 	clang $(MAIN_SRC) -o $(OUTPUT_FOLDER)$(OUTPUT_FILE)
@@ -26,11 +28,18 @@ debug:
 	clang -rdynamic -fno-omit-frame-pointer -g $(MAIN_SRC) -o $(OUTPUT_FOLDER)$(OUTPUT_FILE)
 	lldb $(OUTPUT_FOLDER)$(OUTPUT_FILE) $(FILE) -o run
 
+FIND_CMD = find src -name '*.h' -o -name '*.c' -o -name '*.al' | xargs wc -lc
+
+hell:
+	clang -Wall -Werror -g $(MAIN_SRC) -o $(OUTPUT_FOLDER)$(OUTPUT_FILE)
+	@echo
+	@echo 'You escaped hell!'
+
 count:
 	@echo
 	@echo "echo lines chars name"
-	@echo "find src -name '*.h' -o -name '*.c' | xargs wc -lc"
+	@echo "$(FIND_CMD)"
 	@echo
 	@echo lines chars name
-	@find src -name '*.h' -o -name '*.c' | xargs wc -lc
+	@$(FIND_CMD)
 	@echo

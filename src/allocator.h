@@ -13,6 +13,7 @@
 void arena_free(Arena *arena) {
     adeb(printf("Free(%p)\n", arena));
     adeb(dump_stack());
+    if(!arena) return;
     if (arena->initialized) {
         for (i32 i = 0; i < arena->blocks->size; i++) {
             adeb(printf("Block.Free(%p)\n", arena->blocks->array[ i ].data));

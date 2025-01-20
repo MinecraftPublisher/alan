@@ -8,6 +8,9 @@ const var scribe_error   = (void *) -3;
 const var ir_error       = (void *) -2;
 const var analyzer_error = (void *) -1;
 
+const bool true = 1;
+const bool false = 0;
+
 // TODO: Setting this to anything below OPT_BASIC causes a segfault. Figure out why!
 // zero shows maximum optimization level. sacrifice compile-time for run-time.
 const enum {
@@ -80,8 +83,8 @@ struct standard_entry stdlib[] = {
     { .name = "munmap", .args = 2, .types = { -1, -1 }, .ret = 0 }, //
     { .name = "tmp", .args = 1, .types = { 0 }, .ret = 0 },         //
     // Dereferences a pointer, and places it into TMP.
-    { .name = "getp", .args = 1, .types = { -1 }, .ret = -1 },      //
-    { .name = "setp", .args = 2, .types = { -1, -1 }, .ret = 0 }, //
+    { .name = "getp", .args = 1, .types = { 0 }, .ret = -1 },      //
+    { .name = "setp", .args = 2, .types = { 0, 0 }, .ret = 0 }, //
     { .name = "dryback", .args = 1, .types = { 0 }, .ret = 3 },     //
     { .name = "arg", .args = 2, .types = { 0, 0 }, .ret = 3 },      //
     { .name = "if", .args = 2, .types = { 0, 2 }, .ret = 3 },       //
